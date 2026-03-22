@@ -1,6 +1,6 @@
 import { GameTimer } from '@/components/GameTimer';
 import { Ionicons } from '@expo/vector-icons';
-import { useAudioRecorder, useAudioRecorderPermissions } from 'expo-audio';
+import { Audio } from 'expo-av';
 import { useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect, useRef, useState } from 'react';
@@ -50,32 +50,7 @@ export default function TongueTwisters() {
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   
   // Recording
-  const [permissionResponse, requestPermission] = useAudioRecorderPermissions();
-  
-  const audioRecorder = useAudioRecorder({
-    extension: '.m4a',
-    sampleRate: 44100,
-    numberOfChannels: 2,
-    bitRate: 128000,
-    android: {
-      extension: '.m4a',
-      outputFormat: 'mpeg_4',
-      audioEncoder: 'aac',
-      sampleRate: 44100,
-    },
-    ios: {
-      extension: '.m4a',
-      outputFormat: 'MPEG4AAC',
-      audioQuality: 127,
-      sampleRate: 44100,
-      bitRate: 128000,
-    },
-    web: {
-      mimeType: 'audio/webm',
-      bitsPerSecond: 128000,
-    },
-  });
-
+  const recordingRef = useRef<Audio.Recording | null>(null);
   const recordingUriRef = useRef<string | null>(null);
   
   // Scores (accumulated across all phrases)
@@ -89,15 +64,15 @@ export default function TongueTwisters() {
   // Cleanup recording on unmount
   useEffect(() => {
     return () => {
-      if (audioRecorder.isRecording) {
-        audioRecorder.stop();
+      if (recordingRef.current) {
+        recordingRef.current.stopAndUnloadAsync();
       }
     };
   }, []);
 
   const handleBackToDashboard = async () => {
-    if (audioRecorder.isRecording) {
-      await audioRecorder.stop();
+    if (recordingRef.current) {
+      await recordingRef.current.stopAndUnloadAsync();
     }
     setGameStart(false);
     setGameCompleted(false);
@@ -113,100 +88,151 @@ export default function TongueTwisters() {
   };
 
   const startRecording = async () => {
+    console.log('🎙️ === START RECORDING ===');
     try {
-      // Request audio recording permission
-      if (!permissionResponse?.granted) {
-        const { granted } = await requestPermission();
-        if (!granted) {
-          Alert.alert('Permission Required', 'Microphone permission is required for this test.');
-          return;
-        }
+      const { status } = await Audio.requestPermissionsAsync();
+      
+      if (status !== 'granted') {
+        Alert.alert('Permission Required', 'Microphone permission is required for this test.');
+        return;
       }
 
-      await audioRecorder.record();
+      await Audio.setAudioModeAsync({
+        allowsRecordingIOS: true,
+        playsInSilentModeIOS: true,
+      });
+
+      const { recording } = await Audio.Recording.createAsync(
+        Audio.RecordingOptionsPresets.HIGH_QUALITY
+      );
+
+      recordingRef.current = recording;
       setIsRecording(true);
+      console.log('✅ Recording started');
     } catch (err) {
-      console.error('Failed to start recording', err);
+      console.error('💥 Failed to start recording', err);
       Alert.alert('Error', 'Failed to start recording. Please try again.');
     }
   };
 
   const stopRecording = async () => {
-    if (!audioRecorder.isRecording) return;
+    console.log('🛑 === STOP RECORDING ===');
+    
+    if (!recordingRef.current) {
+      console.warn('⚠️ No active recording');
+      return;
+    }
     
     try {
-      const uri = await audioRecorder.stop();
-      recordingUriRef.current = uri || null;
+      await recordingRef.current.stopAndUnloadAsync();
+      const uri = recordingRef.current.getURI();
+      
+      console.log('📍 Recording URI:', uri);
+      recordingUriRef.current = uri;
       setIsRecording(false);
+      
+      recordingRef.current = null;
+      console.log('✅ Recording stopped');
     } catch (err) {
-      console.error('Failed to stop recording', err);
+      console.error('💥 Failed to stop recording', err);
     }
   };
 
   const analyzeRecording = async (uri: string, referenceText: string) => {
+    console.log('🎤 === ANALYZE RECORDING STARTED ===');
+    console.log('URI:', uri);
+    console.log('Reference text:', referenceText);
+    
     try {
       setIsAnalyzing(true);
 
-      // First, let's check if the API is even reachable
+      // Health check
+      console.log('🏥 Performing health check...');
       try {
         const healthCheck = await fetch('https://tongue-twister-game-api.ngrok.io/health');
-        console.log('Health check status:', healthCheck.status);
+        console.log('✅ Health check status:', healthCheck.status);
         if (!healthCheck.ok) {
           throw new Error('API server is not responding to health check');
         }
       } catch (healthErr) {
-        console.error('Health check failed:', healthErr);
+        console.error('❌ Health check failed:', healthErr);
         throw new Error('Cannot reach API server. It may be offline.');
       }
 
       // Create FormData
+      console.log('📦 Creating FormData...');
       const formData = new FormData();
       formData.append('reference_text', referenceText);
       
-      // Append audio file
       formData.append('audio_file', {
         uri: uri,
         type: 'audio/m4a',
         name: 'recording.m4a',
       } as any);
-
-      console.log('Sending to API:', API_URL);
-      console.log('Reference text:', referenceText);
-      console.log('Audio URI:', uri);
+      
+      console.log('✅ FormData created');
 
       // Send to API
+      console.log('🚀 Sending to API:', API_URL);
       const apiResponse = await fetch(API_URL, {
         method: 'POST',
         body: formData,
       });
 
-      console.log('API Response status:', apiResponse.status);
+      console.log('📨 API Response received - Status:', apiResponse.status);
 
       if (!apiResponse.ok) {
         const errorText = await apiResponse.text();
-        console.error('API Error response:', errorText);
-        throw new Error(`API Error: ${apiResponse.status}`);
+        console.error('❌ API Error response:', errorText);
+        throw new Error(`API Error: ${apiResponse.status} - ${errorText}`);
       }
 
+      console.log('📖 Parsing JSON response...');
       const result: APIResponse = await apiResponse.json();
-      console.log('API Result:', JSON.stringify(result, null, 2));
+      console.log('✅ API Result received:', JSON.stringify(result, null, 2));
       
       // Calculate scores
+      console.log('🧮 Calculating scores...');
       const clarity = calculateClarityScore(result);
       const articulation = calculateArticulationScore(result);
       const speed = calculateSpeedScore(result);
 
-      console.log('Calculated scores:', { clarity, articulation, speed });
+      console.log('✅ Scores calculated:');
+      console.log('  - Clarity:', clarity);
+      console.log('  - Articulation:', articulation);
+      console.log('  - Speed:', speed);
 
       // Store scores
-      setClarityScores(prev => [...prev, clarity]);
-      setArticulationScores(prev => [...prev, articulation]);
-      setSpeedScores(prev => [...prev, speed]);
-      setApiResponses(prev => [...prev, result]);
+      console.log('💾 Storing scores...');
+      setClarityScores(prev => {
+        const newScores = [...prev, clarity];
+        console.log('💾 Clarity scores updated:', newScores);
+        return newScores;
+      });
+      setArticulationScores(prev => {
+        const newScores = [...prev, articulation];
+        console.log('💾 Articulation scores updated:', newScores);
+        return newScores;
+      });
+      setSpeedScores(prev => {
+        const newScores = [...prev, speed];
+        console.log('💾 Speed scores updated:', newScores);
+        return newScores;
+      });
+      setApiResponses(prev => {
+        const newResponses = [...prev, result];
+        console.log('💾 API responses updated. Total count:', newResponses.length);
+        return newResponses;
+      });
 
+      console.log('✅ === ANALYZE RECORDING COMPLETED ===');
       setIsAnalyzing(false);
     } catch (err) {
-      console.error('Failed to analyze recording', err);
+      console.error('💥 === ANALYSIS FAILED ===');
+      console.error('Error type:', err instanceof Error ? err.constructor.name : typeof err);
+      console.error('Error message:', err instanceof Error ? err.message : err);
+      console.error('Full error:', err);
+      
       setIsAnalyzing(false);
       
       const errorMessage = err instanceof Error ? err.message : 'Unknown error';
@@ -216,6 +242,7 @@ export default function TongueTwisters() {
       );
       
       // Fallback scores
+      console.log('⚠️ Using fallback scores (50, 50, 50)');
       setClarityScores(prev => [...prev, 50]);
       setArticulationScores(prev => [...prev, 50]);
       setSpeedScores(prev => [...prev, 50]);
@@ -282,12 +309,20 @@ export default function TongueTwisters() {
   };
 
   const handleNext = async () => {
+    console.log('⏭️ === NEXT BUTTON PRESSED ===');
+    
     // Stop current recording
+    console.log('🛑 Stopping recording...');
     await stopRecording();
+    console.log('✅ Recording stopped. URI:', recordingUriRef.current);
     
     // Analyze the recording
     if (recordingUriRef.current) {
+      console.log('🎯 Starting analysis for phrase:', TONGUE_TWISTERS[currentIndex]);
       await analyzeRecording(recordingUriRef.current, TONGUE_TWISTERS[currentIndex]);
+      console.log('✅ Analysis complete');
+    } else {
+      console.warn('⚠️ No recording URI found!');
     }
     
     setPhrasesCompleted(prev => prev + 1);
@@ -296,23 +331,38 @@ export default function TongueTwisters() {
     if (currentIndex < TONGUE_TWISTERS.length - 1) {
       setCurrentIndex(prev => prev + 1);
     } else {
-      setCurrentIndex(0); // Loop back
+      setCurrentIndex(0);
     }
     
     // Start recording for next phrase
+    console.log('🎙️ Starting new recording...');
     await startRecording();
   };
 
   const handleGameOver = async () => {
     await stopRecording();
     
+    // Show loading state
+    setIsAnalyzing(true);
+    
     // Analyze the last recording
     if (recordingUriRef.current) {
       await analyzeRecording(recordingUriRef.current, TONGUE_TWISTERS[currentIndex]);
     }
     
+    // Wait a bit to ensure all async operations complete
+    await new Promise(resolve => setTimeout(resolve, 1000));
+    
+    setIsAnalyzing(false);
     setGameStart(false);
     setGameCompleted(true);
+    
+    // Log final scores
+    console.log('=== GAME OVER - FINAL SCORES ===');
+    console.log('Clarity scores array:', clarityScores);
+    console.log('Articulation scores array:', articulationScores);
+    console.log('Speed scores array:', speedScores);
+    console.log('Number of API responses:', apiResponses.length);
   };
 
   // Calculate average scores

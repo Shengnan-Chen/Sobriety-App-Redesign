@@ -1,10 +1,11 @@
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView } from 'react-native';
-import { StatusBar } from 'expo-status-bar';
-import { Ionicons } from '@expo/vector-icons';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
-import { useState } from 'react';
 import { GameTimer } from '@/components/GameTimer';
+import { Ionicons } from '@expo/vector-icons';
+import { useAudioRecorder, useAudioRecorderPermissions } from 'expo-audio';
+import { useRouter } from 'expo-router';
+import { StatusBar } from 'expo-status-bar';
+import { useEffect, useRef, useState } from 'react';
+import { Alert, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 const TONGUE_TWISTERS = [
   "She sells seashells by the seashore",
@@ -19,6 +20,25 @@ const TONGUE_TWISTERS = [
   "Six sleek swans swam swiftly southwards",
 ];
 
+const API_URL = 'https://tongue-twister-game-api.ngrok.io/analyze';
+
+type APIResponse = {
+  word_transcription: string;
+  phoneme_transcription: string;
+  is_correct_reading: boolean;
+  speaking_rate_word_per_sec: number;
+  speaking_rate_char_within_words: number;
+  pauses_by_sec: number[];
+  pause_avg_by_sec: number;
+  speaking_rate_phoneme_within_words: number;
+  f0_mean: number;
+  f0_sd: number;
+  jitter: number;
+  shimmer: number;
+  vowel_articulation_index: number | string;
+  phoneme_error_rate: number;
+};
+
 export default function TongueTwisters() {
   const [gameStart, setGameStart] = useState(false);
   const [gameCompleted, setGameCompleted] = useState(false);
@@ -27,50 +47,288 @@ export default function TongueTwisters() {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [phrasesCompleted, setPhrasesCompleted] = useState(0);
   const [isRecording, setIsRecording] = useState(false);
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
   
-  // Hardcoded results
-  const [clarityScore] = useState(78); // 0-100
-  const [articulationScore] = useState(82); // 0-100
-  const [speedScore] = useState(85); // 0-100
+  // Recording
+  const [permissionResponse, requestPermission] = useAudioRecorderPermissions();
+  
+  const audioRecorder = useAudioRecorder({
+    extension: '.m4a',
+    sampleRate: 44100,
+    numberOfChannels: 2,
+    bitRate: 128000,
+    android: {
+      extension: '.m4a',
+      outputFormat: 'mpeg_4',
+      audioEncoder: 'aac',
+      sampleRate: 44100,
+    },
+    ios: {
+      extension: '.m4a',
+      outputFormat: 'MPEG4AAC',
+      audioQuality: 127,
+      sampleRate: 44100,
+      bitRate: 128000,
+    },
+    web: {
+      mimeType: 'audio/webm',
+      bitsPerSecond: 128000,
+    },
+  });
+
+  const recordingUriRef = useRef<string | null>(null);
+  
+  // Scores (accumulated across all phrases)
+  const [clarityScores, setClarityScores] = useState<number[]>([]);
+  const [articulationScores, setArticulationScores] = useState<number[]>([]);
+  const [speedScores, setSpeedScores] = useState<number[]>([]);
+  const [apiResponses, setApiResponses] = useState<APIResponse[]>([]);
 
   const router = useRouter();
 
-  const handleBackToDashboard = () => {
-  setGameStart(false);
-  setGameCompleted(false);
-  setCurrentIndex(0);
-  setPhrasesCompleted(0);
-  setIsRecording(false);
+  // Cleanup recording on unmount
+  useEffect(() => {
+    return () => {
+      if (audioRecorder.isRecording) {
+        audioRecorder.stop();
+      }
+    };
+  }, []);
 
-    router.replace('/(tabs)/dashboard')
+  const handleBackToDashboard = async () => {
+    if (audioRecorder.isRecording) {
+      await audioRecorder.stop();
+    }
+    setGameStart(false);
+    setGameCompleted(false);
+    setCurrentIndex(0);
+    setPhrasesCompleted(0);
+    setIsRecording(false);
+    setIsAnalyzing(false);
+    setClarityScores([]);
+    setArticulationScores([]);
+    setSpeedScores([]);
+    setApiResponses([]);
+    router.replace('/(tabs)/dashboard');
   };
 
-  const gameStartState = () => {
+  const startRecording = async () => {
+    try {
+      // Request audio recording permission
+      if (!permissionResponse?.granted) {
+        const { granted } = await requestPermission();
+        if (!granted) {
+          Alert.alert('Permission Required', 'Microphone permission is required for this test.');
+          return;
+        }
+      }
+
+      await audioRecorder.record();
+      setIsRecording(true);
+    } catch (err) {
+      console.error('Failed to start recording', err);
+      Alert.alert('Error', 'Failed to start recording. Please try again.');
+    }
+  };
+
+  const stopRecording = async () => {
+    if (!audioRecorder.isRecording) return;
+    
+    try {
+      const uri = await audioRecorder.stop();
+      recordingUriRef.current = uri || null;
+      setIsRecording(false);
+    } catch (err) {
+      console.error('Failed to stop recording', err);
+    }
+  };
+
+  const analyzeRecording = async (uri: string, referenceText: string) => {
+    try {
+      setIsAnalyzing(true);
+
+      // First, let's check if the API is even reachable
+      try {
+        const healthCheck = await fetch('https://tongue-twister-game-api.ngrok.io/health');
+        console.log('Health check status:', healthCheck.status);
+        if (!healthCheck.ok) {
+          throw new Error('API server is not responding to health check');
+        }
+      } catch (healthErr) {
+        console.error('Health check failed:', healthErr);
+        throw new Error('Cannot reach API server. It may be offline.');
+      }
+
+      // Create FormData
+      const formData = new FormData();
+      formData.append('reference_text', referenceText);
+      
+      // Append audio file
+      formData.append('audio_file', {
+        uri: uri,
+        type: 'audio/m4a',
+        name: 'recording.m4a',
+      } as any);
+
+      console.log('Sending to API:', API_URL);
+      console.log('Reference text:', referenceText);
+      console.log('Audio URI:', uri);
+
+      // Send to API
+      const apiResponse = await fetch(API_URL, {
+        method: 'POST',
+        body: formData,
+      });
+
+      console.log('API Response status:', apiResponse.status);
+
+      if (!apiResponse.ok) {
+        const errorText = await apiResponse.text();
+        console.error('API Error response:', errorText);
+        throw new Error(`API Error: ${apiResponse.status}`);
+      }
+
+      const result: APIResponse = await apiResponse.json();
+      console.log('API Result:', JSON.stringify(result, null, 2));
+      
+      // Calculate scores
+      const clarity = calculateClarityScore(result);
+      const articulation = calculateArticulationScore(result);
+      const speed = calculateSpeedScore(result);
+
+      console.log('Calculated scores:', { clarity, articulation, speed });
+
+      // Store scores
+      setClarityScores(prev => [...prev, clarity]);
+      setArticulationScores(prev => [...prev, articulation]);
+      setSpeedScores(prev => [...prev, speed]);
+      setApiResponses(prev => [...prev, result]);
+
+      setIsAnalyzing(false);
+    } catch (err) {
+      console.error('Failed to analyze recording', err);
+      setIsAnalyzing(false);
+      
+      const errorMessage = err instanceof Error ? err.message : 'Unknown error';
+      Alert.alert(
+        'Analysis Failed', 
+        `${errorMessage}\n\nUsing default scores for now.`
+      );
+      
+      // Fallback scores
+      setClarityScores(prev => [...prev, 50]);
+      setArticulationScores(prev => [...prev, 50]);
+      setSpeedScores(prev => [...prev, 50]);
+    }
+  };
+
+  const calculateClarityScore = (response: APIResponse): number => {
+    // Based on phoneme error rate (lower is better)
+    const clarityFromPER = Math.max(0, Math.min(100, (1 - response.phoneme_error_rate) * 100));
+    
+    // Bonus for correct reading
+    const correctBonus = response.is_correct_reading ? 10 : 0;
+    
+    return Math.min(100, Math.round(clarityFromPER + correctBonus));
+  };
+
+  const calculateArticulationScore = (response: APIResponse): number => {
+    // Based on vowel articulation index
+    let vaiScore = 50; // Default if "n/a"
+    
+    if (typeof response.vowel_articulation_index === 'number') {
+      // VAI typically ranges from 0.8 to 1.2, normalize to 0-100
+      vaiScore = Math.max(0, Math.min(100, (response.vowel_articulation_index - 0.8) * 250));
+    }
+    
+    // Factor in jitter and shimmer (lower is better)
+    const jitterScore = Math.max(0, Math.min(100, (0.05 - response.jitter) * 1000));
+    const shimmerScore = Math.max(0, Math.min(100, (0.10 - response.shimmer) * 500));
+    
+    return Math.round((vaiScore * 0.5) + (jitterScore * 0.25) + (shimmerScore * 0.25));
+  };
+
+  const calculateSpeedScore = (response: APIResponse): number => {
+    // Based on speaking rate (words per second)
+    const wps = response.speaking_rate_word_per_sec;
+    
+    let speedScore = 0;
+    if (wps >= 2 && wps <= 4) {
+      speedScore = 100; // Optimal range
+    } else if (wps < 2) {
+      speedScore = Math.max(0, (wps / 2) * 100);
+    } else {
+      speedScore = Math.max(0, 100 - ((wps - 4) * 20));
+    }
+    
+    // Factor in pause consistency
+    const pauseScore = Math.max(0, Math.min(100, (0.5 - response.pause_avg_by_sec) * 200));
+    
+    return Math.round((speedScore * 0.7) + (pauseScore * 0.3));
+  };
+
+  const gameStartState = async () => {
     setGameStart(true);
     setGameCompleted(false);
     setCurrentIndex(0);
     setPhrasesCompleted(0);
-    setIsRecording(true);
+    setClarityScores([]);
+    setArticulationScores([]);
+    setSpeedScores([]);
+    setApiResponses([]);
+    
+    // Start recording immediately
+    await startRecording();
   };
 
-  const handleNext = () => {
+  const handleNext = async () => {
+    // Stop current recording
+    await stopRecording();
+    
+    // Analyze the recording
+    if (recordingUriRef.current) {
+      await analyzeRecording(recordingUriRef.current, TONGUE_TWISTERS[currentIndex]);
+    }
+    
     setPhrasesCompleted(prev => prev + 1);
     
+    // Move to next phrase
     if (currentIndex < TONGUE_TWISTERS.length - 1) {
       setCurrentIndex(prev => prev + 1);
     } else {
-      // Loop back to start
-      setCurrentIndex(0);
+      setCurrentIndex(0); // Loop back
     }
+    
+    // Start recording for next phrase
+    await startRecording();
   };
 
-  const handleGameOver = () => {
-    setIsRecording(false);
+  const handleGameOver = async () => {
+    await stopRecording();
+    
+    // Analyze the last recording
+    if (recordingUriRef.current) {
+      await analyzeRecording(recordingUriRef.current, TONGUE_TWISTERS[currentIndex]);
+    }
+    
     setGameStart(false);
     setGameCompleted(true);
   };
 
-  const overallScore = Math.round((clarityScore + articulationScore + speedScore) / 3);
+  // Calculate average scores
+  const avgClarity = clarityScores.length > 0 
+    ? Math.round(clarityScores.reduce((a, b) => a + b, 0) / clarityScores.length)
+    : 0;
+  
+  const avgArticulation = articulationScores.length > 0
+    ? Math.round(articulationScores.reduce((a, b) => a + b, 0) / articulationScores.length)
+    : 0;
+  
+  const avgSpeed = speedScores.length > 0
+    ? Math.round(speedScores.reduce((a, b) => a + b, 0) / speedScores.length)
+    : 0;
+
+  const overallScore = Math.round((avgClarity + avgArticulation + avgSpeed) / 3);
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
@@ -211,6 +469,14 @@ export default function TongueTwisters() {
               </View>
             )}
 
+            {/* Analyzing Indicator */}
+            {isAnalyzing && (
+              <View style={styles.analyzingIndicator}>
+                <Ionicons name="analytics-outline" size={20} color="#3B82F6" />
+                <Text style={styles.analyzingText}>Analyzing...</Text>
+              </View>
+            )}
+
             {/* Tongue Twister Display */}
             <View style={styles.twisterCard}>
               <Ionicons name="chatbox-ellipses-outline" size={48} color="#F59E0B" />
@@ -229,7 +495,11 @@ export default function TongueTwisters() {
             </View>
 
             {/* Next Button */}
-            <TouchableOpacity style={styles.nextButton} onPress={handleNext}>
+            <TouchableOpacity 
+              style={[styles.nextButton, isAnalyzing && styles.nextButtonDisabled]} 
+              onPress={handleNext}
+              disabled={isAnalyzing}
+            >
               <Text style={styles.nextButtonText}>NEXT</Text>
               <Ionicons name="arrow-forward" size={24} color="#FFFFFF" />
             </TouchableOpacity>
@@ -300,30 +570,30 @@ export default function TongueTwisters() {
               <View style={styles.metricRow}>
                 <View style={styles.metricItem}>
                   <Text style={styles.metricLabel}>Clarity</Text>
-                  <Text style={styles.metricValue}>{clarityScore}/100</Text>
+                  <Text style={styles.metricValue}>{avgClarity}/100</Text>
                 </View>
                 <View style={styles.metricBar}>
-                  <View style={[styles.metricBarFill, { width: `${clarityScore}%`, backgroundColor: '#F59E0B' }]} />
+                  <View style={[styles.metricBarFill, { width: `${avgClarity}%`, backgroundColor: '#F59E0B' }]} />
                 </View>
               </View>
 
               <View style={styles.metricRow}>
                 <View style={styles.metricItem}>
                   <Text style={styles.metricLabel}>Articulation</Text>
-                  <Text style={styles.metricValue}>{articulationScore}/100</Text>
+                  <Text style={styles.metricValue}>{avgArticulation}/100</Text>
                 </View>
                 <View style={styles.metricBar}>
-                  <View style={[styles.metricBarFill, { width: `${articulationScore}%`, backgroundColor: '#10B981' }]} />
+                  <View style={[styles.metricBarFill, { width: `${avgArticulation}%`, backgroundColor: '#10B981' }]} />
                 </View>
               </View>
 
               <View style={styles.metricRow}>
                 <View style={styles.metricItem}>
                   <Text style={styles.metricLabel}>Speed</Text>
-                  <Text style={styles.metricValue}>{speedScore}/100</Text>
+                  <Text style={styles.metricValue}>{avgSpeed}/100</Text>
                 </View>
                 <View style={styles.metricBar}>
-                  <View style={[styles.metricBarFill, { width: `${speedScore}%`, backgroundColor: '#3B82F6' }]} />
+                  <View style={[styles.metricBarFill, { width: `${avgSpeed}%`, backgroundColor: '#3B82F6' }]} />
                 </View>
               </View>
             </View>
@@ -558,7 +828,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#FEE2E2',
     padding: 12,
     borderRadius: 8,
-    marginBottom: 20,
+    marginBottom: 12,
   },
   recordingDot: {
     width: 12,
@@ -571,6 +841,21 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '600',
     color: '#991B1B',
+  },
+  analyzingIndicator: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#DBEAFE',
+    padding: 12,
+    borderRadius: 8,
+    marginBottom: 12,
+  },
+  analyzingText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#1E40AF',
+    marginLeft: 8,
   },
   twisterCard: {
     backgroundColor: '#FFFFFF',
@@ -634,6 +919,10 @@ const styles = StyleSheet.create({
     paddingVertical: 18,
     borderRadius: 12,
     gap: 12,
+  },
+  nextButtonDisabled: {
+    backgroundColor: '#9CA3AF',
+    opacity: 0.6,
   },
   nextButtonText: {
     fontSize: 18,

@@ -46,6 +46,7 @@ export default function VisualPursuit() {
   const [nystagmusScore] = useState(85);
   const [pupilResponse] = useState(92);
   const [eyeRedness] = useState(15);
+  
 
   const animationRef = useRef<any>(null);
   const pauseTimeoutRef = useRef<any>(null);

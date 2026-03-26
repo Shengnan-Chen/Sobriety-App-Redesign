@@ -17,7 +17,7 @@ const BALL_SIZE = 40;
 const CANVAS_WIDTH = width - 40;
 const CANVAS_HEIGHT = 400;
 const TEST_DURATION = 15; // 15 seconds per test
-const PAUSE_AT_END = 2; // 2 seconds pause at each end
+const PAUSE_AT_END = 2500; // 2.5 seconds pause at each end (ms)
 
 type TestPhase =
   | "camera-portrait"
@@ -40,7 +40,8 @@ export default function VisualPursuit() {
     x: CANVAS_WIDTH / 2,
     y: 50,
   });
-  const [isPaused, setIsPaused] = useState(false);
+  const isPausedRef = useRef(false);
+  const ballYRef = useRef(50);
 
   // Hardcoded results
   const [nystagmusScore] = useState(85);
@@ -84,9 +85,10 @@ export default function VisualPursuit() {
     setShowCamera(false);
     setCameraOrientation("portrait");
     setTestPhase("camera-portrait");
+    ballYRef.current = 50;
     setBallPosition({ x: CANVAS_WIDTH / 2, y: 50 });
     movingDownRef.current = true;
-    setIsPaused(false);
+    isPausedRef.current = false;
     canvasHeightRef.current = CANVAS_HEIGHT;
   };
 
@@ -97,43 +99,37 @@ export default function VisualPursuit() {
 
   const startBallAnimation = () => {
     animationRef.current = setInterval(() => {
-      if (isPaused) return;
+      if (isPausedRef.current) return;
 
-      setBallPosition((prev) => {
-        const speed = 3;
-        const topBoundary = 0; // Touch the top edge
-        const bottomBoundary = canvasHeightRef.current - BALL_SIZE; // Touch the bottom edge
-        let newY = prev.y;
+      const speed = 3;
+      const topBoundary = 0;
+      const bottomBoundary = canvasHeightRef.current - BALL_SIZE;
+      let newY = ballYRef.current;
 
-        // Move based on current direction
-        if (movingDownRef.current) {
-          newY = prev.y + speed;
-
-          // Check if reached bottom
-          if (newY >= bottomBoundary) {
-            newY = bottomBoundary;
-            movingDownRef.current = false;
-            setIsPaused(true);
-            pauseTimeoutRef.current = setTimeout(() => {
-              setIsPaused(false);
-            }, PAUSE_AT_END * 1000);
-          }
-        } else {
-          newY = prev.y - speed;
-
-          // Check if reached top
-          if (newY <= topBoundary) {
-            newY = topBoundary;
-            movingDownRef.current = true;
-            setIsPaused(true);
-            pauseTimeoutRef.current = setTimeout(() => {
-              setIsPaused(false);
-            }, PAUSE_AT_END * 1000);
-          }
+      if (movingDownRef.current) {
+        newY = ballYRef.current + speed;
+        if (newY >= bottomBoundary) {
+          newY = bottomBoundary;
+          movingDownRef.current = false;
+          isPausedRef.current = true;
+          pauseTimeoutRef.current = setTimeout(() => {
+            isPausedRef.current = false;
+          }, PAUSE_AT_END);
         }
+      } else {
+        newY = ballYRef.current - speed;
+        if (newY <= topBoundary) {
+          newY = topBoundary;
+          movingDownRef.current = true;
+          isPausedRef.current = true;
+          pauseTimeoutRef.current = setTimeout(() => {
+            isPausedRef.current = false;
+          }, PAUSE_AT_END);
+        }
+      }
 
-        return { x: prev.x, y: newY };
-      });
+      ballYRef.current = newY;
+      setBallPosition({ x: CANVAS_WIDTH / 2, y: newY });
     }, 30);
   };
 
@@ -151,9 +147,10 @@ export default function VisualPursuit() {
       setTestPhase("portrait-test");
 
       // Start portrait (vertical movement - UP AND DOWN)
+      ballYRef.current = 50;
       setBallPosition({ x: CANVAS_WIDTH / 2, y: 50 });
       movingDownRef.current = true;
-      setIsPaused(false);
+      isPausedRef.current = false;
 
       startBallAnimation();
 
@@ -171,9 +168,10 @@ export default function VisualPursuit() {
           setTestPhase("landscape-test");
 
           // Start landscape (also vertical movement - UP AND DOWN)
+          ballYRef.current = 50;
           setBallPosition({ x: CANVAS_WIDTH / 2, y: 50 });
           movingDownRef.current = true;
-          setIsPaused(false);
+          isPausedRef.current = false;
 
           startBallAnimation();
 

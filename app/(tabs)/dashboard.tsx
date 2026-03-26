@@ -14,7 +14,6 @@ const games = [
   { id: 7, name: 'Typing Challenge', category: 'MOTOR SKILLS', time: '2 min', icon: 'rocket-outline', color: '#10B981' },
   { id: 8, name: 'Stroop Naming', category: 'COGNITIVE', time: '30 sec', icon: 'text-outline', color: '#3B82F6' },
     { id: 9, name: 'Trail Task', category: 'COGNITIVE', time: '2 min', icon: 'trail-sign-outline', color: '#f63bf6' },
-
 ];
 
 export default function Dashboard() {

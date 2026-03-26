@@ -1,6 +1,7 @@
 import { GameTimer } from '@/components/GameTimer';
 import { Ionicons } from '@expo/vector-icons';
-import { Audio } from 'expo-av';
+import { RecordingPresets, requestRecordingPermissionsAsync, setAudioModeAsync, useAudioRecorder } from 'expo-audio';
+import * as FileSystem from 'expo-file-system/legacy';
 import { useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect, useRef, useState } from 'react';
@@ -20,7 +21,9 @@ const TONGUE_TWISTERS = [
   "Six sleek swans swam swiftly southwards",
 ];
 
+
 const API_URL = 'https://tongue-twister-game-api.ngrok.io/analyze';
+
 
 type APIResponse = {
   word_transcription: string;
@@ -42,15 +45,15 @@ type APIResponse = {
 export default function TongueTwisters() {
   const [gameStart, setGameStart] = useState(false);
   const [gameCompleted, setGameCompleted] = useState(false);
-  
+
   // Game state
   const [currentIndex, setCurrentIndex] = useState(0);
   const [phrasesCompleted, setPhrasesCompleted] = useState(0);
   const [isRecording, setIsRecording] = useState(false);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
-  
-  // Recording
-  const recordingRef = useRef<Audio.Recording | null>(null);
+
+  // expo-audio recorder (hook must be at component top level)
+  const recorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
   const recordingUriRef = useRef<string | null>(null);
   
   // Scores (accumulated across all phrases)
@@ -64,16 +67,12 @@ export default function TongueTwisters() {
   // Cleanup recording on unmount
   useEffect(() => {
     return () => {
-      if (recordingRef.current) {
-        recordingRef.current.stopAndUnloadAsync();
-      }
+      recorder.stop().catch(() => {});
     };
   }, []);
 
   const handleBackToDashboard = async () => {
-    if (recordingRef.current) {
-      await recordingRef.current.stopAndUnloadAsync();
-    }
+    await recorder.stop().catch(() => {});
     setGameStart(false);
     setGameCompleted(false);
     setCurrentIndex(0);
@@ -90,23 +89,15 @@ export default function TongueTwisters() {
   const startRecording = async () => {
     console.log('🎙️ === START RECORDING ===');
     try {
-      const { status } = await Audio.requestPermissionsAsync();
-      
-      if (status !== 'granted') {
+      const { granted } = await requestRecordingPermissionsAsync();
+      if (!granted) {
         Alert.alert('Permission Required', 'Microphone permission is required for this test.');
         return;
       }
 
-      await Audio.setAudioModeAsync({
-        allowsRecordingIOS: true,
-        playsInSilentModeIOS: true,
-      });
-
-      const { recording } = await Audio.Recording.createAsync(
-        Audio.RecordingOptionsPresets.HIGH_QUALITY
-      );
-
-      recordingRef.current = recording;
+      await setAudioModeAsync({ allowsRecording: true, playsInSilentMode: true });
+      await recorder.prepareToRecordAsync();
+      recorder.record();
       setIsRecording(true);
       console.log('✅ Recording started');
     } catch (err) {
@@ -117,26 +108,28 @@ export default function TongueTwisters() {
 
   const stopRecording = async () => {
     console.log('🛑 === STOP RECORDING ===');
-    
-    if (!recordingRef.current) {
-      console.warn('⚠️ No active recording');
-      return;
-    }
-    
     try {
-      await recordingRef.current.stopAndUnloadAsync();
-      const uri = recordingRef.current.getURI();
-      
+      await recorder.stop();
+      const uri = recorder.uri;
       console.log('📍 Recording URI:', uri);
+      if (uri) {
+        const info = await FileSystem.getInfoAsync(uri);
+        console.log('📁 File size:', (info as any).size ?? 'unknown', 'bytes');
+      }
       recordingUriRef.current = uri;
       setIsRecording(false);
-      
-      recordingRef.current = null;
       console.log('✅ Recording stopped');
     } catch (err) {
       console.error('💥 Failed to stop recording', err);
     }
   };
+
+  // HIGH_QUALITY preset records .m4a (AAC) on both iOS and Android
+  const getAudioMeta = (uri: string) => ({
+    uri,
+    type: 'audio/m4a',
+    name: 'recording.m4a',
+  });
 
   const analyzeRecording = async (uri: string, referenceText: string) => {
     console.log('🎤 === ANALYZE RECORDING STARTED ===');
@@ -159,19 +152,15 @@ export default function TongueTwisters() {
         throw new Error('Cannot reach API server. It may be offline.');
       }
 
-      // Create FormData
+const audioMeta = getAudioMeta(uri);
+      console.log('📍 Audio meta:', audioMeta);
+
       console.log('📦 Creating FormData...');
       const formData = new FormData();
       formData.append('reference_text', referenceText);
-      
-      formData.append('audio_file', {
-        uri: uri,
-        type: 'audio/m4a',
-        name: 'recording.m4a',
-      } as any);
-      
-      console.log('✅ FormData created');
+      formData.append('audio_file', audioMeta as any);
 
+console.log('✅ FormData created');
       // Send to API
       console.log('🚀 Sending to API:', API_URL);
       const apiResponse = await fetch(API_URL, {
@@ -717,8 +706,6 @@ const styles = StyleSheet.create({
     marginBottom: 30,
     paddingHorizontal: 20,
   },
-
-  // Example Box
   exampleBox: {
     backgroundColor: '#F9FAFB',
     borderRadius: 16,
@@ -792,8 +779,6 @@ const styles = StyleSheet.create({
     marginLeft: 8,
     flex: 1,
   },
-
-  // Rules
   rulesBox: {
     backgroundColor: '#F9FAFB',
     borderRadius: 12,
@@ -827,8 +812,6 @@ const styles = StyleSheet.create({
     color: '#6B7280',
     lineHeight: 20,
   },
-
-  // Start Button
   startButton: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -843,8 +826,6 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     marginRight: 8,
   },
-
-  // GAME SCREEN
   gameScreen: {
     flex: 1,
     padding: 20,
@@ -980,8 +961,6 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     letterSpacing: 1,
   },
-
-  // RESULT SCREEN
   resultScreen: {
     flexGrow: 1,
     justifyContent: 'center',

@@ -78,12 +78,12 @@ function jaccardDist(a: Set<string>, b: Set<string>): number {
 //   - canonical dot sequences (primary + variants for tolerance)
 //   - direction sequence derived from those dots
 // ─────────────────────────────────────────────────────────────────────────────
-const SYMBOL_CHARS = ['>', '✓', '✕', 'Σ', 'L', 'U', '▫', '△', 'W', '/'];
+const SYMBOL_CHARS = ['>', '✓', '✕', 'Z', 'L', 'U', '◇', '∧', 'W', '/'];
 const SYMBOL_DESC  = [
   'Right angle — start TL, drag to MR, then BL',
   'Checkmark — start TR, drag to BC, then ML',
   'X cross — two strokes: TL→BR and TR→BL',
-  'Sigma — TR→TL→MC→BR→BL (Z path)',
+  'Z shape — start TL, right to TR, diagonal to BL, right to BR',
   'L shape — start TL, drag down to BL, then right to BR',
   'U shape — start TL, drag down to BL, right to BR, up to TR',
   'Small square — trace edges TC→MR→BC→ML',
@@ -101,7 +101,7 @@ const CANONICAL_SEQS: number[][][] = [
   [[0, 5, 6]],            // 0 >  chevron
   [[2, 7, 3]],            // 1 ✓  checkmark
   [[0, 4, 8], [2, 4, 6]], // 2 ✕  X — two required strokes
-  [[2, 0, 4, 8, 6]],      // 3 Σ  sigma (Z-path)
+  [[0, 2, 6, 8]],          // 3 Z  shape (top→right→diag→bottom)
   [[0, 6, 8]],            // 4 L  shape
   [[0, 6, 8, 2]],         // 5 U  shape
   [[1, 5, 7, 3]],         // 6 ▫  small square
@@ -140,8 +140,8 @@ function recognizeSymbol(strokes: number[][]): number {
     }
   });
 
-  // 0.4 threshold: user must share ≥60% of edges with the best-matching symbol
-  return bestScore <= 0.4 ? bestSym : -1;
+  // 0.25 threshold: user must share ≥75% of edges with the best-matching symbol
+  return bestScore <= 0.25 ? bestSym : -1;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -268,6 +268,13 @@ export default function DSST() {
   }, [clearDrawing]);
 
   const handleGameOver = useCallback(() => setPhase('results'), []);
+
+  const handleBackToIntro = useCallback(() => {
+    setPhase('intro');
+    setScore(0);
+    setTotalAttempts(0);
+    clearDrawing();
+  }, [clearDrawing]);
 
   const handleBackToDashboard = useCallback(() => {
     setPhase('intro');
@@ -470,7 +477,6 @@ export default function DSST() {
   // ─────────────────────────────────────────────────────────────────────────
   // RENDER: GAME
   // ─────────────────────────────────────────────────────────────────────────
-  const expectedSymIdx = sessionMap[currentDigit];
   const hasDrawing = strokesRef.current.some(s => s.length >= 2) ||
                      currentStrokeRef.current.length >= 2;
 
@@ -485,7 +491,7 @@ export default function DSST() {
 
       {/* ── Header ── */}
       <View style={s.header}>
-        <TouchableOpacity onPress={handleBackToDashboard} style={s.backBtn}>
+        <TouchableOpacity onPress={handleBackToIntro} style={s.backBtn}>
           <Ionicons name="chevron-back" size={24} color="#1F2937" />
         </TouchableOpacity>
         <Text style={s.headerTitle}>DSST</Text>
@@ -530,8 +536,6 @@ export default function DSST() {
           {/* Stimulus box */}
           <View style={s.stimBox}>
             <Text style={s.stimDigit}>{currentDigit}</Text>
-            <MiniPreview symIdx={expectedSymIdx} />
-            <Text style={s.stimSym}>{SYMBOL_CHARS[expectedSymIdx]}</Text>
           </View>
 
           {/* Pattern-lock canvas */}

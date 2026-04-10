@@ -51,6 +51,7 @@ export default function TongueTwisters() {
   const [phrasesCompleted, setPhrasesCompleted] = useState(0);
   const [isRecording, setIsRecording] = useState(false);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [shuffledPhrases, setShuffledPhrases] = useState<string[]>(TONGUE_TWISTERS);
 
   // expo-audio recorder (hook must be at component top level)
   const recorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
@@ -71,7 +72,7 @@ export default function TongueTwisters() {
     };
   }, []);
 
-  const handleBackToDashboard = async () => {
+  const resetState = async () => {
     await recorder.stop().catch(() => {});
     setGameStart(false);
     setGameCompleted(false);
@@ -83,6 +84,14 @@ export default function TongueTwisters() {
     setArticulationScores([]);
     setSpeedScores([]);
     setApiResponses([]);
+  };
+
+  const handleBackToIntro = async () => {
+    await resetState();
+  };
+
+  const handleBackToDashboard = async () => {
+    await resetState();
     router.replace('/(tabs)/dashboard');
   };
 
@@ -113,10 +122,12 @@ export default function TongueTwisters() {
       const uri = recorder.uri;
       console.log('📍 Recording URI:', uri);
       if (uri) {
-        const info = await FileSystem.getInfoAsync(uri);
-        console.log('📁 File size:', (info as any).size ?? 'unknown', 'bytes');
+        const dest = FileSystem.documentDirectory + 'recording_upload.m4a';
+        await FileSystem.copyAsync({ from: uri, to: dest });
+        recordingUriRef.current = dest;
+      } else {
+        recordingUriRef.current = uri;
       }
-      recordingUriRef.current = uri;
       setIsRecording(false);
       console.log('✅ Recording stopped');
     } catch (err) {
@@ -238,52 +249,44 @@ console.log('✅ FormData created');
     }
   };
 
+  // ─── REPLACED: scoring functions ─────────────────────────────────────────
+
+  const clamp = (v: number) => Math.max(0, Math.min(100, Math.round(v)));
+
+  // Clarity — phoneme error rate. Weighted low in final score due to accent bias.
+  // Sober baseline ~0.05, clearly impaired ~0.40
   const calculateClarityScore = (response: APIResponse): number => {
-    // Based on phoneme error rate (lower is better)
-    const clarityFromPER = Math.max(0, Math.min(100, (1 - response.phoneme_error_rate) * 100));
-    
-    // Bonus for correct reading
-    const correctBonus = response.is_correct_reading ? 10 : 0;
-    
-    return Math.min(100, Math.round(clarityFromPER + correctBonus));
+    const perScore = clamp(((0.40 - response.phoneme_error_rate) / (0.40 - 0.05)) * 100);
+    const readingPenalty = response.is_correct_reading ? 0 : -8;
+    return clamp(perScore + readingPenalty);
   };
 
+  // Articulation — jitter + shimmer only. Both are direct waveform measurements,
+  // accent-independent, and reflect involuntary vocal motor control.
+  // Jitter: sober <0.020, impaired >0.050
+  // Shimmer: sober <0.060, impaired >0.150
   const calculateArticulationScore = (response: APIResponse): number => {
-    // Based on vowel articulation index
-    let vaiScore = 50; // Default if "n/a"
-    
-    if (typeof response.vowel_articulation_index === 'number') {
-      // VAI typically ranges from 0.8 to 1.2, normalize to 0-100
-      vaiScore = Math.max(0, Math.min(100, (response.vowel_articulation_index - 0.8) * 250));
-    }
-    
-    // Factor in jitter and shimmer (lower is better)
-    const jitterScore = Math.max(0, Math.min(100, (0.05 - response.jitter) * 1000));
-    const shimmerScore = Math.max(0, Math.min(100, (0.10 - response.shimmer) * 500));
-    
-    return Math.round((vaiScore * 0.5) + (jitterScore * 0.25) + (shimmerScore * 0.25));
+    const jitterScore  = clamp(((0.050 - response.jitter)  / (0.050 - 0.010)) * 100);
+    const shimmerScore = clamp(((0.150 - response.shimmer) / (0.150 - 0.060)) * 100);
+    return clamp((jitterScore * 0.5) + (shimmerScore * 0.5));
   };
 
+  // Speed — deviation from ideal 3.0 wps penalised in both directions
+  // (too slow = sedated, too fast = erratic), plus pause pattern and pitch stability.
+  // F0 SD: sober 15–25 Hz, impaired >50 Hz
   const calculateSpeedScore = (response: APIResponse): number => {
-    // Based on speaking rate (words per second)
-    const wps = response.speaking_rate_word_per_sec;
-    
-    let speedScore = 0;
-    if (wps >= 2 && wps <= 4) {
-      speedScore = 100; // Optimal range
-    } else if (wps < 2) {
-      speedScore = Math.max(0, (wps / 2) * 100);
-    } else {
-      speedScore = Math.max(0, 100 - ((wps - 4) * 20));
-    }
-    
-    // Factor in pause consistency
-    const pauseScore = Math.max(0, Math.min(100, (0.5 - response.pause_avg_by_sec) * 200));
-    
-    return Math.round((speedScore * 0.7) + (pauseScore * 0.3));
+    const deviation  = Math.abs(response.speaking_rate_word_per_sec - 3.0);
+    const speedScore = clamp(100 - (deviation / 1.2) * 60);
+    const pauseScore = clamp(((0.60 - response.pause_avg_by_sec) / (0.60 - 0.10)) * 100);
+    const pitchScore = clamp(((50 - response.f0_sd) / (50 - 15)) * 100);
+    return clamp((speedScore * 0.5) + (pauseScore * 0.3) + (pitchScore * 0.2));
   };
+
+  // ─────────────────────────────────────────────────────────────────────────
 
   const gameStartState = async () => {
+    const shuffled = [...TONGUE_TWISTERS].sort(() => Math.random() - 0.5);
+    setShuffledPhrases(shuffled);
     setGameStart(true);
     setGameCompleted(false);
     setCurrentIndex(0);
@@ -307,8 +310,8 @@ console.log('✅ FormData created');
     
     // Analyze the recording
     if (recordingUriRef.current) {
-      console.log('🎯 Starting analysis for phrase:', TONGUE_TWISTERS[currentIndex]);
-      await analyzeRecording(recordingUriRef.current, TONGUE_TWISTERS[currentIndex]);
+      console.log('🎯 Starting analysis for phrase:', shuffledPhrases[currentIndex]);
+      await analyzeRecording(recordingUriRef.current, shuffledPhrases[currentIndex]);
       console.log('✅ Analysis complete');
     } else {
       console.warn('⚠️ No recording URI found!');
@@ -336,7 +339,7 @@ console.log('✅ FormData created');
     
     // Analyze the last recording
     if (recordingUriRef.current) {
-      await analyzeRecording(recordingUriRef.current, TONGUE_TWISTERS[currentIndex]);
+      await analyzeRecording(recordingUriRef.current, shuffledPhrases[currentIndex]);
     }
     
     // Wait a bit to ensure all async operations complete
@@ -367,7 +370,10 @@ console.log('✅ FormData created');
     ? Math.round(speedScores.reduce((a, b) => a + b, 0) / speedScores.length)
     : 0;
 
-  const overallScore = Math.round((avgClarity + avgArticulation + avgSpeed) / 3);
+  // Weighted overall: articulation 50% (accent-independent) + speed 30% + clarity 20% (accent-biased)
+  const overallScore = Math.round(
+    (avgClarity * 0.20) + (avgArticulation * 0.50) + (avgSpeed * 0.30)
+  );
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
@@ -480,7 +486,7 @@ console.log('✅ FormData created');
       {gameStart && !gameCompleted && (
         <>
           <View style={styles.header}>
-            <TouchableOpacity onPress={handleBackToDashboard} style={styles.backButton}>
+            <TouchableOpacity onPress={handleBackToIntro} style={styles.backButton}>
               <Ionicons name="chevron-back" size={24} color="#1F2937" />
             </TouchableOpacity>
             <Text style={styles.headerTitle}>Tongue Twisters</Text>
@@ -492,7 +498,7 @@ console.log('✅ FormData created');
             <View style={styles.statsContainer}>
               <View style={styles.statCard}>
                 <Ionicons name="time-outline" size={20} color="#F59E0B" />
-                <GameTimer time={30} onTimeUp={handleGameOver} />
+                <GameTimer time={30} onTimeUp={handleGameOver} paused={isAnalyzing} />
               </View>
               <View style={styles.statCard}>
                 <Ionicons name="checkmark-circle-outline" size={20} color="#10B981" />
@@ -520,7 +526,7 @@ console.log('✅ FormData created');
             <View style={styles.twisterCard}>
               <Ionicons name="chatbox-ellipses-outline" size={48} color="#F59E0B" />
               <Text style={styles.twisterText}>
-                {TONGUE_TWISTERS[currentIndex]}
+                {shuffledPhrases[currentIndex]}
               </Text>
             </View>
 

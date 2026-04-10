@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { View, Text, StyleSheet } from "react-native";
 
-export function GameTimer({time = 30, onTimeUp}: {time?:number, onTimeUp:() => void}) {
+export function GameTimer({time = 30, onTimeUp, paused = false}: {time?:number, onTimeUp:() => void, paused?: boolean}) {
     const [timeLeft, setTimeLeft] = useState(time);
 
     useEffect(() => {
@@ -10,12 +10,14 @@ export function GameTimer({time = 30, onTimeUp}: {time?:number, onTimeUp:() => v
             return;
         }
 
+        if (paused) return;
+
         const timer = setInterval(() => {
             setTimeLeft((prevTime) => prevTime - 1);
         }, 1000);
 
         return () => clearInterval(timer);
-    }, [timeLeft]);
+    }, [timeLeft, paused]);
 
     return (
         <View style={styles.timerContainer}>

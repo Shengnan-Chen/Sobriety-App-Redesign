@@ -86,7 +86,7 @@ const SYMBOL_DESC  = [
   'Z shape — start TL, right to TR, diagonal to BL, right to BR',
   'L shape — start TL, drag down to BL, then right to BR',
   'U shape — start TL, drag down to BL, right to BR, up to TR',
-  'Small square — trace edges TC→MR→BC→ML',
+  'Diamond — trace all 4 sides: TC→MR→BC→ML, then ML→TC to close',
   'Triangle — start BL, draw up to TC, then down to BR',
   'W shape — TL→BL→MC→BR→TR',
   'Slash — diagonal BL to TR (or TR to BL)',
@@ -104,7 +104,7 @@ const CANONICAL_SEQS: number[][][] = [
   [[0, 2, 6, 8]],          // 3 Z  shape (top→right→diag→bottom)
   [[0, 6, 8]],            // 4 L  shape
   [[0, 6, 8, 2]],         // 5 U  shape
-  [[1, 5, 7, 3]],         // 6 ▫  small square
+  [[1, 5, 7, 3], [1, 3]], // 6 ◇  full diamond (all 4 sides)
   [[6, 1, 8]],            // 7 △  triangle — BL→TC→BR
   [[0, 6, 4, 8, 2]],      // 8 W  shape
   [[6, 4, 2]],            // 9 /  slash
@@ -127,6 +127,7 @@ function recognizeSymbol(strokes: number[][]): number {
 
   let bestSym = -1;
   let bestScore = Infinity;
+  let bestRecall = 0;
 
   CANONICAL_SEQS.forEach((variants, symIdx) => {
     // Combine expanded edges from all variants into one canonical edge set
@@ -134,14 +135,21 @@ function recognizeSymbol(strokes: number[][]): number {
     variants.forEach(seq => seqToEdgeSet(seq).forEach(e => canonEdges.add(e)));
 
     const score = jaccardDist(userEdges, canonEdges);
+
+    // Recall = fraction of canonical edges the user actually drew
+    let inter = 0;
+    userEdges.forEach(e => { if (canonEdges.has(e)) inter++; });
+    const recall = canonEdges.size > 0 ? inter / canonEdges.size : 0;
+
     if (score < bestScore) {
       bestScore = score;
       bestSym = symIdx;
+      bestRecall = recall;
     }
   });
 
-  // 0.25 threshold: user must share ≥75% of edges with the best-matching symbol
-  return bestScore <= 0.25 ? bestSym : -1;
+  // Must draw all canonical edges (recall >= 0.9) AND not add excessive extras (jaccard < 0.25)
+  return bestScore < 0.25 && bestRecall >= 0.9 ? bestSym : -1;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

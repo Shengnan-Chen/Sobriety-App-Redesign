@@ -1,4 +1,3 @@
-import { GameTimer } from '@/components/GameTimer';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
@@ -31,9 +30,12 @@ export default function ChoiceReaction() {
   const [releaseReactionTimes, setReleaseReactionTimes] = useState<number[]>([]);
   const [errors, setErrors] = useState(0);
   
+  const [perceivedDuration, setPerceivedDuration] = useState(0);
+
   // Timing
   const blueStartTime = useRef<number>(0);
   const redStartTime = useRef<number>(0);
+  const gameStartTimeRef = useRef<number>(0);
   const missedBlueTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const redDelayTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hasRespondedToBlueRef = useRef(false);
@@ -210,13 +212,21 @@ export default function ChoiceReaction() {
     setGameStart(false);
   };
 
+  const handleStop = () => {
+    const elapsed = Math.round((Date.now() - gameStartTimeRef.current) / 1000);
+    setPerceivedDuration(elapsed);
+    handleGameOver();
+  };
+
   const gameStartState = () => {
     gameActiveRef.current = true;
+    gameStartTimeRef.current = Date.now();
     setGameStart(true);
     setGameCompleted(false);
     setPressReactionTimes([]);
     setReleaseReactionTimes([]);
     setErrors(0);
+    setPerceivedDuration(0);
     startNewRound();
   };
 
@@ -317,7 +327,7 @@ export default function ChoiceReaction() {
               <Text style={styles.rulesTitle}>Test Rules:</Text>
               <View style={styles.rule}>
                 <View style={styles.bulletPoint} />
-                <Text style={styles.ruleText}>30 seconds to complete as many rounds as possible</Text>
+                <Text style={styles.ruleText}>Tap STOP when you feel 30 seconds have passed — no visible timer</Text>
               </View>
               <View style={styles.rule}>
                 <View style={styles.bulletPoint} />
@@ -349,15 +359,10 @@ export default function ChoiceReaction() {
           </View>
 
           <View style={styles.gameScreen}>
-            {/* Timer only – no accuracy/correct/error counts during play (study-friendly) */}
-            <View style={styles.statsContainer}>
-              <View style={styles.statCard}>
-                <Ionicons name="time-outline" size={20} color="#10B981" />
-                <GameTimer time={30} onTimeUp={handleGameOver} />
-              </View>
-            </View>
+            {/* Time-perception prompt */}
+            <Text style={styles.timePrompt}>Tap STOP when you feel 30 seconds have passed</Text>
 
-            {/* Instructions */}
+            {/* Reaction instruction */}
             <Text style={styles.gameInstruction}>
               {currentPhase === 'waiting' && 'Wait for a square to turn blue...'}
               {currentPhase === 'blue' && 'Press and HOLD the blue square!'}
@@ -403,6 +408,12 @@ export default function ChoiceReaction() {
                 ))}
               </View>
             </View>
+
+            {/* STOP button */}
+            <TouchableOpacity style={styles.stopButton} onPress={handleStop}>
+              <Ionicons name="stop-circle-outline" size={24} color="#FFFFFF" />
+              <Text style={styles.stopButtonText}>STOP</Text>
+            </TouchableOpacity>
           </View>
         </>
       )}
@@ -463,6 +474,28 @@ export default function ChoiceReaction() {
               <Text style={styles.scoreLabel}>Avg Release Reaction</Text>
               <Text style={styles.scoreValue}>{avgReleaseTime}</Text>
               <Text style={styles.scoreSubtext}>milliseconds</Text>
+            </View>
+
+            {/* Time Perception */}
+            <View style={styles.scoreCard}>
+              <Text style={styles.scoreLabel}>Time Perception</Text>
+              <Text style={styles.scoreValue}>{perceivedDuration}s</Text>
+              <Text style={styles.scoreSubtext}>you stopped at (target: 30s)</Text>
+              <View style={styles.statsRow}>
+                <View style={styles.statItem}>
+                  <Text style={styles.statItemLabel}>Difference</Text>
+                  <Text style={styles.statItemValue}>
+                    {perceivedDuration >= 30 ? '+' : ''}{perceivedDuration - 30}s
+                  </Text>
+                </View>
+                <View style={styles.statItemDivider} />
+                <View style={styles.statItem}>
+                  <Text style={styles.statItemLabel}>Accuracy</Text>
+                  <Text style={styles.statItemValue}>
+                    {Math.round(100 - Math.abs(perceivedDuration - 30) / 30 * 100)}%
+                  </Text>
+                </View>
+              </View>
             </View>
 
             <TouchableOpacity style={styles.retryButton} onPress={gameStartState}>
@@ -793,5 +826,28 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
     color: '#10B981',
+  },
+  timePrompt: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#6B7280',
+    textAlign: 'center',
+    marginBottom: 20,
+    paddingHorizontal: 20,
+  },
+  stopButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#EF4444',
+    paddingVertical: 16,
+    borderRadius: 12,
+    marginTop: 32,
+    gap: 8,
+  },
+  stopButtonText: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#FFFFFF',
   },
 });

@@ -530,15 +530,6 @@ console.log('✅ FormData created');
               </Text>
             </View>
 
-            {/* Microphone Visual */}
-            <View style={styles.microphoneContainer}>
-              <View style={[styles.microphoneRing, isRecording && styles.microphoneRingActive]} />
-              <View style={[styles.microphoneRing2, isRecording && styles.microphoneRing2Active]} />
-              <View style={styles.microphoneIcon}>
-                <Ionicons name="mic" size={48} color={isRecording ? "#EF4444" : "#9CA3AF"} />
-              </View>
-            </View>
-
             {/* Next Button */}
             <TouchableOpacity 
               style={[styles.nextButton, isAnalyzing && styles.nextButtonDisabled]} 
@@ -835,7 +826,7 @@ const styles = StyleSheet.create({
   gameScreen: {
     flex: 1,
     padding: 20,
-    justifyContent: 'space-between',
+    justifyContent: 'flex-start',
   },
   statsContainer: {
     flexDirection: 'row',
@@ -901,7 +892,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     borderWidth: 3,
     borderColor: '#F59E0B',
-    marginBottom: 30,
+    marginBottom: 16,
   },
   twisterText: {
     fontSize: 22,

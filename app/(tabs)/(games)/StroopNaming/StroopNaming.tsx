@@ -1,11 +1,10 @@
-import { GameTimer } from "@/components/GameTimer";
 import StroopBrick from "@/components/StroopBricks";
 import { StroopGameGen } from "@/logic/StroopGameGen";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { StatusBar } from "expo-status-bar";
-import { useState } from "react";
-import { StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { useRef, useState } from "react";
+import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 export default function StroopNaming() {
@@ -17,6 +16,8 @@ export default function StroopNaming() {
   const [totalAttempts, setTotalAttempts] = useState(0);
   const [gameStarted, setGameStarted] = useState(false);
   const [gameOver, setGameOver] = useState(false);
+  const [perceivedDuration, setPerceivedDuration] = useState(0);
+  const gameStartTimeRef = useRef<number>(0);
 
   const parseGameGen = () => {
     const gameInfo = StroopGameGen();
@@ -36,14 +37,22 @@ export default function StroopNaming() {
   const startGame = () => {
     setScore(0);
     setTotalAttempts(0);
+    setPerceivedDuration(0);
     setGameOver(false);
     setGameStarted(true);
+    gameStartTimeRef.current = Date.now();
     parseGameGen();
   };
 
   const handleGameOver = () => {
     setGameOver(true);
     setGameStarted(false);
+  };
+
+  const handleStop = () => {
+    const elapsed = Math.round((Date.now() - gameStartTimeRef.current) / 1000);
+    setPerceivedDuration(elapsed);
+    handleGameOver();
   };
 
   const handleBackToDashboard = () => {
@@ -106,17 +115,17 @@ export default function StroopNaming() {
         {/* PLAY SCREEN */}
         {gameStarted && !gameOver && (
           <View style={styles.playScreen}>
-            {/* Timer & Score */}
+            {/* Score + time-perception prompt */}
             <View style={styles.statsContainer}>
-              <View style={styles.statCard}>
-                <Ionicons name="time-outline" size={20} color="#4F46E5" />
-                <GameTimer time={30} onTimeUp={handleGameOver} />
-              </View>
               <View style={styles.statCard}>
                 <Ionicons name="trophy-outline" size={20} color="#10B981" />
                 <Text style={styles.statText}>{score}</Text>
               </View>
             </View>
+
+            <Text style={styles.timePrompt}>
+              Tap STOP when you feel 30 seconds have passed
+            </Text>
 
             {/* Instruction reminder */}
             <Text style={styles.reminderText}>
@@ -141,12 +150,18 @@ export default function StroopNaming() {
                 </TouchableOpacity>
               ))}
             </View>
+
+            {/* STOP button */}
+            <TouchableOpacity style={styles.stopButton} onPress={handleStop}>
+              <Ionicons name="stop-circle-outline" size={24} color="#FFFFFF" />
+              <Text style={styles.stopButtonText}>STOP</Text>
+            </TouchableOpacity>
           </View>
         )}
 
         {/* RESULT SCREEN */}
         {gameOver && (
-          <View style={styles.resultScreen}>
+          <ScrollView style={styles.resultScrollView} contentContainerStyle={styles.resultScreen} showsVerticalScrollIndicator={false}>
             <View
               style={[styles.iconContainer, { backgroundColor: "#D1FAE5" }]}
             >
@@ -174,6 +189,19 @@ export default function StroopNaming() {
               </View>
             </View>
 
+            {/* Time Perception */}
+            <View style={[styles.scoreCard, { marginTop: 0 }]}>
+              <Text style={styles.scoreLabel}>Time Perception</Text>
+              <Text style={styles.scoreValue}>{perceivedDuration}s</Text>
+              <Text style={styles.scoreSubtext}>you stopped at (target: 30s)</Text>
+              <View style={styles.accuracyContainer}>
+                <Text style={styles.accuracyLabel}>Difference:</Text>
+                <Text style={styles.accuracyValue}>
+                  {perceivedDuration >= 30 ? "+" : ""}{perceivedDuration - 30}s
+                </Text>
+              </View>
+            </View>
+
             {/* Action Buttons */}
             <TouchableOpacity style={styles.retryButton} onPress={startGame}>
               <Ionicons name="refresh" size={20} color="#FFFFFF" />
@@ -185,7 +213,7 @@ export default function StroopNaming() {
             >
               <Text style={styles.homeButtonText}>Back to Dashboard</Text>
             </TouchableOpacity>
-          </View>
+          </ScrollView>
         )}
       </View>
     </SafeAreaView>
@@ -354,9 +382,15 @@ const styles = StyleSheet.create({
   },
 
   // RESULT SCREEN
+  resultScrollView: {
+    flex: 1,
+    width: "100%",
+  },
   resultScreen: {
+    flexGrow: 1,
     alignItems: "center",
     paddingHorizontal: 40,
+    paddingVertical: 20,
   },
   resultTitle: {
     fontSize: 24,
@@ -433,5 +467,29 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: "600",
     color: "#4F46E5",
+  },
+  timePrompt: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#6B7280",
+    textAlign: "center",
+    marginBottom: 12,
+    paddingHorizontal: 20,
+  },
+  stopButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#EF4444",
+    paddingVertical: 16,
+    borderRadius: 12,
+    marginTop: 24,
+    width: "100%",
+    gap: 8,
+  },
+  stopButtonText: {
+    fontSize: 18,
+    fontWeight: "700",
+    color: "#FFFFFF",
   },
 });

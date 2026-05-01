@@ -11,7 +11,8 @@
     "ios": {
       "supportsTablet": true,
       "infoPlist": {
-        "NSMicrophoneUsageDescription": "This app needs access to the microphone for voice recording in sobriety tests."
+        "NSMicrophoneUsageDescription": "This app needs access to the microphone for voice recording in sobriety tests.",
+        "NSCameraUsageDescription": "This app needs access to the camera to record eye movements during sobriety tests."
       }
     },
     "android": {
@@ -25,7 +26,8 @@
       "predictiveBackGestureEnabled": false,
       "package": "com.kriisht.SobrietyTest",
       "permissions": [
-        "android.permission.RECORD_AUDIO"
+        "android.permission.RECORD_AUDIO",
+        "android.permission.CAMERA"
       ]
     },
     "web": {
@@ -50,6 +52,12 @@
         "expo-audio",
         {
           "microphonePermission": "Allow $(PRODUCT_NAME) to access your microphone for voice recording in sobriety tests."
+        }
+      ],
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Allow $(PRODUCT_NAME) to access your camera to record eye movements during sobriety tests."
         }
       ],
       "expo-font",

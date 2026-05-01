@@ -30,9 +30,6 @@ export default function TypingChallenge() {
   const [errorKeystrokes, setErrorKeystrokes] = useState(0);
   const [gameStarted, setGameStarted] = useState(false);
   const [gameOver, setGameOver] = useState(false);
-  const [feedback, setFeedback] = useState<"correct" | "incorrect" | null>(
-    null,
-  );
 
   useEffect(() => {
     if (gameStarted && !gameOver) {
@@ -43,7 +40,6 @@ export default function TypingChallenge() {
   const generateNewSentence = () => {
     setCurrentSentence(getRandomSentence());
     setUserInput("");
-    setFeedback(null);
   };
 
   const calculateAccuracy = (typed: string, target: string): number => {
@@ -66,10 +62,7 @@ export default function TypingChallenge() {
 
     if (isExactMatch) {
       setCorrectSentences(correctSentences + 1);
-      setFeedback("correct");
     } else {
-      setFeedback("incorrect");
-      // Count errors in this sentence
       const errorsInSentence = userInput.length - correctChars;
       setErrorKeystrokes(errorKeystrokes + errorsInSentence);
     }
@@ -115,14 +108,13 @@ export default function TypingChallenge() {
     setGameStarted(false);
     setUserInput("");
     setCurrentSentence("");
-    setFeedback(null);
     router.replace("/(tabs)/dashboard");
   };
 
   const calculateWPM = () => {
     // WPM = (characters typed / 5) / minutes
     // Average word = 5 characters
-    const timeInMinutes = 30 / 60; // 30 seconds = 0.5 minutes
+    const timeInMinutes = 60 / 60; // 60 seconds = 1 minute
     const words = correctCharacters / 5;
     return Math.round(words / timeInMinutes);
   };
@@ -151,7 +143,7 @@ export default function TypingChallenge() {
       let color = "#6B7280"; // Default gray
 
       if (index < userInput.length) {
-        color = userInput[index] === char ? "#10B981" : "#EF4444"; // Green or Red
+        color = "#1F2937";
       }
 
       return (
@@ -224,7 +216,7 @@ export default function TypingChallenge() {
             <View style={styles.statsContainer}>
               <View style={styles.statCard}>
                 <Ionicons name="time-outline" size={20} color="#4F46E5" />
-                <GameTimer time={30} onTimeUp={handleGameOver} />
+                <GameTimer time={60} onTimeUp={handleGameOver} />
               </View>
               <View style={styles.statCard}>
                 <Ionicons
@@ -240,13 +232,7 @@ export default function TypingChallenge() {
             <Text style={styles.reminderText}>Type the sentence below</Text>
 
             {/* Current Sentence Display with Live Highlighting */}
-            <View
-              style={[
-                styles.sentenceContainer,
-                feedback === "correct" && styles.sentenceContainerCorrect,
-                feedback === "incorrect" && styles.sentenceContainerIncorrect,
-              ]}
-            >
+            <View style={styles.sentenceContainer}>
               <View style={styles.sentenceTextContainer}>
                 {renderSentenceWithHighlight()}
               </View>
@@ -288,12 +274,6 @@ export default function TypingChallenge() {
               <Text style={styles.submitButtonText}>Submit</Text>
               <Ionicons name="arrow-forward" size={20} color="#FFFFFF" />
             </TouchableOpacity>
-
-            {/* Progress Info */}
-            <Text style={styles.progressText}>
-              Sentences: {totalSentences} | Accuracy:{" "}
-              {calculateOverallAccuracy()}%
-            </Text>
           </ScrollView>
         )}
 

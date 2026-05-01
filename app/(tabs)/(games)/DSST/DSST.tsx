@@ -1,9 +1,9 @@
-import { GameTimer } from '@/components/GameTimer';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import React, { useCallback, useRef, useState } from 'react';
 import {
+  Dimensions,
   PanResponder,
   ScrollView,
   StyleSheet,
@@ -11,6 +11,8 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+
+const { width } = Dimensions.get('window');
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Svg, { Circle, Line } from 'react-native-svg';
 
@@ -78,36 +80,54 @@ function jaccardDist(a: Set<string>, b: Set<string>): number {
 //   - canonical dot sequences (primary + variants for tolerance)
 //   - direction sequence derived from those dots
 // ─────────────────────────────────────────────────────────────────────────────
-const SYMBOL_CHARS = ['>', '✓', '✕', 'Z', 'L', 'U', '◇', '∧', 'W', '/'];
+const SYMBOL_CHARS = [
+  '>', '✓', '✕', 'Z', 'L', 'U', '◇', '△', 'W', '/',
+  'T', '+', '7', 'Λ', 'V', 'Π', 'Γ', '⊓', '<', '=',
+];
 const SYMBOL_DESC  = [
-  'Right angle — start TL, drag to MR, then BL',
-  'Checkmark — start TR, drag to BC, then ML',
+  'Right chevron — TL→MR→BL',
+  'Checkmark — TR→BM→ML',
   'X cross — two strokes: TL→BR and TR→BL',
-  'Z shape — start TL, right to TR, diagonal to BL, right to BR',
-  'L shape — start TL, drag down to BL, then right to BR',
-  'U shape — start TL, drag down to BL, right to BR, up to TR',
-  'Diamond — trace all 4 sides: TC→MR→BC→ML, then ML→TC to close',
-  'Triangle — start BL, draw up to TC, then down to BR',
+  'Z shape — TL→TR, diagonal to BL, then BL→BR',
+  'L shape — TL→BL→BR',
+  'U shape — TL→BL→BR→TR',
+  'Diamond — TC→MR→BC→ML (close the loop)',
+  'Triangle — BL→TC→BR',
   'W shape — TL→BL→MC→BR→TR',
-  'Slash — diagonal BL to TR (or TR to BL)',
+  'Slash — BL to TR diagonal',
+  'T shape — top bar (TL→TR) then center drop (TM→BM)',
+  'Plus — horizontal mid (ML→MR) and vertical mid (TM→BM)',
+  '7 shape — TL→TR then down to BR (right side)',
+  'Up caret (Λ) — ML→TM→MR',
+  'Down caret (V) — ML→BM→MR',
+  'Pi (Π) — BL→TL→TR→BR (two sides + top bar)',
+  'Gamma (Γ) — BL→TL→TR (reverse-L)',
+  'Cap (⊓) — TR→TL→BL then bottom BL→BR',
+  'Left chevron (<) — TR→ML→BR',
+  'Equals (=) — top edge TL→TR and bottom edge BL→BR',
 ];
 
-// Canonical dot sequences for each symbol (used for mini-preview + recognition)
-// Multiple variants allow different drawing approaches
-// Each entry is one or more dot sequences. For single-stroke symbols, one
-// sequence is enough — the edge-set matcher handles any draw order/direction.
-// For X (sym 2), both sequences are the two REQUIRED strokes; their edges combine.
 const CANONICAL_SEQS: number[][][] = [
-  [[0, 5, 6]],            // 0 >  chevron
-  [[2, 7, 3]],            // 1 ✓  checkmark
-  [[0, 4, 8], [2, 4, 6]], // 2 ✕  X — two required strokes
-  [[0, 2, 6, 8]],          // 3 Z  shape (top→right→diag→bottom)
-  [[0, 6, 8]],            // 4 L  shape
-  [[0, 6, 8, 2]],         // 5 U  shape
-  [[1, 5, 7, 3], [1, 3]], // 6 ◇  full diamond (all 4 sides)
-  [[6, 1, 8]],            // 7 △  triangle — BL→TC→BR
-  [[0, 6, 4, 8, 2]],      // 8 W  shape
-  [[6, 4, 2]],            // 9 /  slash
+  [[0, 5, 6]],             // 0  >   right chevron
+  [[2, 7, 3]],             // 1  ✓   checkmark
+  [[0, 4, 8], [2, 4, 6]],  // 2  ✕   X (two strokes)
+  [[0, 2, 6, 8]],          // 3  Z   shape
+  [[0, 6, 8]],             // 4  L   shape
+  [[0, 6, 8, 2]],          // 5  U   shape
+  [[1, 5, 7, 3], [1, 3]],  // 6  ◇   diamond
+  [[6, 1, 8]],             // 7  △   triangle
+  [[0, 6, 4, 8, 2]],       // 8  W   shape
+  [[6, 4, 2]],             // 9  /   slash
+  [[0, 2], [1, 7]],        // 10 T   top bar + center drop
+  [[3, 5], [1, 7]],        // 11 +   plus (two strokes)
+  [[0, 2, 8]],             // 12 7   top bar + right side down
+  [[3, 1, 5]],             // 13 Λ   up caret
+  [[3, 7, 5]],             // 14 V   down caret
+  [[6, 0, 2, 8]],          // 15 Π   pi/arch (BL→TL→TR→BR)
+  [[6, 0, 2]],             // 16 Γ   reverse-L (BL→TL→TR)
+  [[2, 0, 6, 8]],          // 17 ⊓   cap (TR→TL→BL→BR)
+  [[2, 3, 8]],             // 18 <   left chevron
+  [[0, 2], [6, 8]],        // 19 =   top + bottom bars
 ];
 
 // Match user's drawn strokes against all symbols.
@@ -155,10 +175,10 @@ function recognizeSymbol(strokes: number[][]): number {
 // ─────────────────────────────────────────────────────────────────────────────
 // CANVAS HELPERS
 // ─────────────────────────────────────────────────────────────────────────────
-const CANVAS_SIZE = 240;
-const DOT_RADIUS  = 14;
-const CAPTURE_R   = 30; // finger must be within this px to capture a dot
-const PADDING     = 40; // canvas edge padding
+const CANVAS_SIZE = Math.min(width - 32, 360);
+const DOT_RADIUS  = Math.round(CANVAS_SIZE * 0.055);
+const CAPTURE_R   = Math.round(CANVAS_SIZE * 0.117);
+const PADDING     = Math.round(CANVAS_SIZE * 0.158);
 
 function dotXY(dotIdx: number): { x: number; y: number } {
   const step = (CANVAS_SIZE - PADDING * 2) / 2;
@@ -174,23 +194,22 @@ function dotXY(dotIdx: number): { x: number; y: number } {
 const MINI = 54;
 const MINI_PAD = 10;
 
-function MiniPreview({ symIdx }: { symIdx: number }) {
-  const step = (MINI - MINI_PAD * 2) / 2;
+function MiniPreview({ symIdx, size = MINI, showDots = false }: { symIdx: number; size?: number; showDots?: boolean }) {
+  const pad  = Math.round(size * MINI_PAD / MINI);
+  const step = (size - pad * 2) / 2;
   const seqs = CANONICAL_SEQS[symIdx];
 
   const dotPos = (d: number) => ({
-    cx: MINI_PAD + DOT_COLS[d] * step,
-    cy: MINI_PAD + DOT_ROWS[d] * step,
+    cx: pad + DOT_COLS[d] * step,
+    cy: pad + DOT_ROWS[d] * step,
   });
 
   return (
-    <Svg width={MINI} height={MINI}>
-      {/* All 9 dots (dim) */}
-      {Array.from({ length: 9 }, (_, i) => {
+    <Svg width={size} height={size}>
+      {showDots && Array.from({ length: 9 }, (_, i) => {
         const { cx, cy } = dotPos(i);
         return <Circle key={i} cx={cx} cy={cy} r={3} fill="#D1D5DB" />;
       })}
-      {/* Connected lines */}
       {seqs.map((seq, si) =>
         seq.slice(1).map((d, i) => {
           const a = dotPos(seq[i]);
@@ -201,14 +220,13 @@ function MiniPreview({ symIdx }: { symIdx: number }) {
               x1={a.cx} y1={a.cy}
               x2={b.cx} y2={b.cy}
               stroke="#4338CA"
-              strokeWidth={2}
+              strokeWidth={2.5}
               strokeLinecap="round"
             />
           );
         })
       )}
-      {/* Active dots (bright) */}
-      {[...new Set(seqs.flat())].map(d => {
+      {showDots && [...new Set(seqs.flat())].map(d => {
         const { cx, cy } = dotPos(d);
         return <Circle key={`a${d}`} cx={cx} cy={cy} r={4} fill="#4338CA" />;
       })}
@@ -253,6 +271,10 @@ export default function DSST() {
   // ── feedback ──
   const [feedback, setFeedback] = useState<'correct' | 'wrong' | null>(null);
 
+  // ── timer ──
+  const [timeLeft, setTimeLeft] = useState(30);
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
   // ── canvas offset (for touch → canvas coord mapping) ──
   const canvasOffset = useRef({ x: 0, y: 0 });
 
@@ -265,32 +287,54 @@ export default function DSST() {
     forceUpdate(n => n + 1);
   }, []);
 
+  const stopTimer = useCallback(() => {
+    if (timerRef.current) {
+      clearInterval(timerRef.current);
+      timerRef.current = null;
+    }
+  }, []);
+
   const startGame = useCallback(() => {
-    const map = shuffle(DIGITS);
+    stopTimer();
+    const map = shuffle(Array.from({ length: 20 }, (_, i) => i)).slice(0, 10);
     setSessionMap(map);
     setScore(0);
     setTotalAttempts(0);
+    setTimeLeft(30);
     clearDrawing();
     setCurrentDigit(Math.floor(Math.random() * 10));
     setPhase('playing');
-  }, [clearDrawing]);
 
-  const handleGameOver = useCallback(() => setPhase('results'), []);
+    let remaining = 30;
+    timerRef.current = setInterval(() => {
+      remaining -= 1;
+      setTimeLeft(remaining);
+      if (remaining <= 0) {
+        clearInterval(timerRef.current!);
+        timerRef.current = null;
+        setPhase('results');
+      }
+    }, 1000);
+  }, [clearDrawing, stopTimer]);
 
   const handleBackToIntro = useCallback(() => {
+    stopTimer();
     setPhase('intro');
     setScore(0);
     setTotalAttempts(0);
+    setTimeLeft(30);
     clearDrawing();
-  }, [clearDrawing]);
+  }, [clearDrawing, stopTimer]);
 
   const handleBackToDashboard = useCallback(() => {
+    stopTimer();
     setPhase('intro');
     setScore(0);
     setTotalAttempts(0);
+    setTimeLeft(30);
     clearDrawing();
     router.replace('/(tabs)/dashboard');
-  }, [router, clearDrawing]);
+  }, [router, clearDrawing, stopTimer]);
 
   // ─── pattern lock pan responder ─────────────────────────────────────────
   const panResponder = useRef(
@@ -385,10 +429,10 @@ export default function DSST() {
           </Text>
 
           <View style={s.card}>
-            <Text style={s.cardTitle}>The 10 symbols &amp; how to draw them</Text>
+            <Text style={s.cardTitle}>All 20 symbols — learn them before playing</Text>
             {CANONICAL_SEQS.map((_, i) => (
               <View key={i} style={s.symbolRow}>
-                <MiniPreview symIdx={i} />
+                <MiniPreview symIdx={i} showDots={true} />
                 <View style={s.symbolInfo}>
                   <Text style={s.symbolChar}>{SYMBOL_CHARS[i]}</Text>
                   <Text style={s.symbolDesc} numberOfLines={2}>{SYMBOL_DESC[i]}</Text>
@@ -400,10 +444,10 @@ export default function DSST() {
           <View style={s.rulesCard}>
             <Text style={s.rulesTitle}>Rules</Text>
             {[
-              '60 seconds — match as many as possible',
+              '15–20 items per session, then results are shown',
+              '10 of 20 symbols chosen randomly each session',
               'Drag through the dots to draw the symbol',
               'Tap Clear to redo, Submit to confirm',
-              'Symbol grid reshuffles each new session',
               'You advance whether correct or not',
             ].map((r, i) => (
               <View key={i} style={s.ruleRow}>
@@ -511,12 +555,12 @@ export default function DSST() {
         {/* ── Stats bar ── */}
         <View style={s.statsBar}>
           <View style={s.statPill}>
-            <Ionicons name="time-outline" size={16} color="#8B5CF6" />
-            <GameTimer time={60} onTimeUp={handleGameOver} />
-          </View>
-          <View style={s.statPill}>
             <Ionicons name="checkmark-circle-outline" size={16} color="#10B981" />
-            <Text style={s.statPillText}>{score}</Text>
+            <Text style={s.statPillText}>{score} correct</Text>
+          </View>
+          <View style={[s.statPill, timeLeft <= 10 && { borderColor: '#EF4444' }]}>
+            <Ionicons name="timer-outline" size={16} color={timeLeft <= 10 ? '#EF4444' : '#8B5CF6'} />
+            <Text style={[s.statPillText, timeLeft <= 10 && { color: '#EF4444' }]}>{timeLeft}s</Text>
           </View>
         </View>
 
@@ -525,28 +569,23 @@ export default function DSST() {
         {[DIGITS.slice(0, 5), DIGITS.slice(5)].map((row, ri) => (
           <View key={ri} style={[s.refGrid, ri === 0 && s.refGridTop]}>
             {row.map(d => (
-              <View
-                key={d}
-                style={[s.refCell, d === currentDigit && s.refCellHL]}
-              >
-                <Text style={[s.refNum, d === currentDigit && s.refNumHL]}>{d}</Text>
-                <Text style={[s.refSym, d === currentDigit && s.refSymHL]}>
-                  {SYMBOL_CHARS[sessionMap[d]]}
-                </Text>
+              <View key={d} style={s.refCell}>
+                <Text style={s.refNum}>{d}</Text>
+                <MiniPreview symIdx={sessionMap[d]} size={38} />
               </View>
             ))}
           </View>
         ))}
 
         {/* ── Stimulus + Drawing canvas ── */}
+        {/* Stimulus strip above canvas */}
+        <View style={s.stimBox}>
+          <Text style={s.refLabel}>Draw the symbol for:</Text>
+          <Text style={s.stimDigit}>{currentDigit}</Text>
+        </View>
+
+        {/* Pattern-lock canvas */}
         <View style={s.mainRow}>
-
-          {/* Stimulus box */}
-          <View style={s.stimBox}>
-            <Text style={s.stimDigit}>{currentDigit}</Text>
-          </View>
-
-          {/* Pattern-lock canvas */}
           <View
             style={s.canvas}
             onLayout={e => {
@@ -715,28 +754,24 @@ const s = StyleSheet.create({
     borderBottomLeftRadius: 0, borderBottomRightRadius: 0,
     borderBottomWidth: 0, marginBottom: 0,
   },
-  refCell:    { flex: 1, alignItems: 'center', paddingVertical: 7, backgroundColor: '#F9FAFB', borderRightWidth: 0.5, borderRightColor: '#E5E7EB' },
-  refCellHL:  { backgroundColor: '#EEF2FF' },
-  refNum:     { fontSize: 13, fontWeight: '700', color: '#9CA3AF' },
-  refNumHL:   { color: '#4338CA' },
-  refSym:     { fontSize: 18, fontWeight: '600', color: '#374151' },
-  refSymHL:   { color: '#4338CA' },
+  refCell:    { flex: 1, alignItems: 'center', paddingVertical: 4, backgroundColor: '#F9FAFB', borderRightWidth: 0.5, borderRightColor: '#E5E7EB' },
+  refNum:     { fontSize: 13, fontWeight: '700', color: '#9CA3AF', marginBottom: 2 },
 
-  mainRow:    { flexDirection: 'row', gap: 12, alignItems: 'flex-start', marginBottom: 14 },
+  mainRow:    { alignItems: 'center', marginBottom: 14 },
 
   stimBox:    {
-    width: 80, borderWidth: 2, borderColor: '#8B5CF6', borderRadius: 12,
-    alignItems: 'center', justifyContent: 'center', paddingVertical: 12,
-    backgroundColor: '#FFF', height: CANVAS_SIZE,
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+    gap: 12, borderWidth: 2, borderColor: '#8B5CF6', borderRadius: 12,
+    paddingVertical: 10, paddingHorizontal: 20,
+    backgroundColor: '#FFF', marginBottom: 12,
   },
-  stimDigit:  { fontSize: 36, fontWeight: '700', color: '#1F2937', marginBottom: 6 },
-  stimSym:    { fontSize: 18, color: '#8B5CF6', marginTop: 6 },
+  stimDigit:  { fontSize: 36, fontWeight: '700', color: '#1F2937' },
 
   canvas:     {
     width: CANVAS_SIZE, height: CANVAS_SIZE,
-    backgroundColor: '#FFF', borderRadius: 12,
+    backgroundColor: '#FFF', borderRadius: 14,
     borderWidth: 1.5, borderColor: '#D1D5DB',
-    overflow: 'hidden',
+    overflow: 'hidden', alignSelf: 'center',
   },
 
   feedbackOverlay: {

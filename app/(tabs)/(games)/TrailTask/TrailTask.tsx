@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Dimensions, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Svg, { Line, Circle as SvgCircle, Text as SvgText } from 'react-native-svg';
@@ -10,8 +10,24 @@ const { width } = Dimensions.get('window');
 const CANVAS_WIDTH = width - 40;
 const CANVAS_HEIGHT = 500;
 
-// Simple sequence array
-const TRAIL_SEQUENCE = ['1', 'A', '2', 'B', '3', 'C', '4', 'D', '5', 'E'];
+// Build sequence: random start letter (not A), 7-8 letters, no Z wrap.
+// Numbers = ordinal position of each letter (F=6, G=7, …) matching user example.
+function buildSequence(): { sequence: string[]; startLetter: string } {
+  const numLetters = Math.floor(Math.random() * 2) + 7; // 7 or 8
+  // 0-indexed: A=0 … Z=25. Never start at A (0). Must not exceed Y (index 24).
+  const maxStart = 25 - numLetters; // e.g. 8 letters → max start index = 17 (R)
+  const startIdx = Math.floor(Math.random() * maxStart) + 1; // 1…maxStart
+
+  const sequence: string[] = [];
+  for (let i = 0; i < numLetters; i++) {
+    const letterIdx = startIdx + i;
+    sequence.push(String.fromCharCode(65 + letterIdx)); // letter
+    if (i < numLetters - 1) {
+      sequence.push(String(letterIdx + 1)); // ordinal (F→6, G→7 …)
+    }
+  }
+  return { sequence, startLetter: String.fromCharCode(65 + startIdx) };
+}
 
 type CircleItem = {
   id: string;
@@ -29,14 +45,16 @@ type LineItem = {
 export default function TrailMaking() {
   const [gameStart, setGameStart] = useState(false);
   const [gameCompleted, setGameCompleted] = useState(false);
-  
+  const [startLetter, setStartLetter] = useState('');
+  const sequenceRef = useRef<string[]>([]);
+
   const [circles, setCircles] = useState<CircleItem[]>([]);
   const [connectedLines, setConnectedLines] = useState<LineItem[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [startTime, setStartTime] = useState<number>(0);
   const [completionTime, setCompletionTime] = useState<number>(0);
   const [isFailed, setIsFailed] = useState(false);
-  
+
   // Finger tracking
   const [fingerDown, setFingerDown] = useState(false);
   const [fingerPath, setFingerPath] = useState<{ x: number; y: number }[]>([]);
@@ -66,12 +84,12 @@ export default function TrailMaking() {
   };
 
   // Generate random positions for circles
-  const generateCircles = (): CircleItem[] => {
+  const generateCircles = (sequence: string[]): CircleItem[] => {
     const newCircles: CircleItem[] = [];
     const minDistance = 70;
     const margin = 50;
-    
-    TRAIL_SEQUENCE.forEach((label, index) => {
+
+    sequence.forEach((label, index) => {
       let x, y;
       let attempts = 0;
       
@@ -136,7 +154,10 @@ export default function TrailMaking() {
   };
 
   const gameStartState = () => {
-    const newCircles = generateCircles();
+    const { sequence, startLetter: sl } = buildSequence();
+    sequenceRef.current = sequence;
+    setStartLetter(sl);
+    const newCircles = generateCircles(sequence);
     setCircles(newCircles);
     setConnectedLines([]);
     setCurrentIndex(0);
@@ -182,26 +203,30 @@ export default function TrailMaking() {
             <View style={styles.exampleBox}>
               <Text style={styles.exampleLabel}>How it works:</Text>
 
-              <Text style={styles.stepTitle}>Sequence Pattern:</Text>
+              <Text style={styles.stepTitle}>Example Sequence Pattern:</Text>
               <View style={styles.sequenceContainer}>
                 <View style={styles.sequenceItem}>
-                  <Text style={styles.sequenceText}>1</Text>
+                  <Text style={styles.sequenceText}>F</Text>
                 </View>
                 <Ionicons name="arrow-forward" size={20} color="#F59E0B" />
                 <View style={styles.sequenceItem}>
-                  <Text style={styles.sequenceText}>A</Text>
+                  <Text style={styles.sequenceText}>6</Text>
                 </View>
                 <Ionicons name="arrow-forward" size={20} color="#F59E0B" />
                 <View style={styles.sequenceItem}>
-                  <Text style={styles.sequenceText}>2</Text>
+                  <Text style={styles.sequenceText}>G</Text>
                 </View>
                 <Ionicons name="arrow-forward" size={20} color="#F59E0B" />
                 <View style={styles.sequenceItem}>
-                  <Text style={styles.sequenceText}>B</Text>
+                  <Text style={styles.sequenceText}>7</Text>
                 </View>
                 <Ionicons name="arrow-forward" size={20} color="#F59E0B" />
                 <View style={styles.sequenceItem}>
-                  <Text style={styles.sequenceText}>3</Text>
+                  <Text style={styles.sequenceText}>H</Text>
+                </View>
+                <Ionicons name="arrow-forward" size={20} color="#F59E0B" />
+                <View style={styles.sequenceItem}>
+                  <Text style={styles.sequenceText}>8</Text>
                 </View>
               </View>
 
@@ -218,11 +243,11 @@ export default function TrailMaking() {
               <Text style={styles.rulesTitle}>Test Rules:</Text>
               <View style={styles.rule}>
                 <View style={styles.bulletPoint} />
-                <Text style={styles.ruleText}>Complete the sequence: 1→A→2→B→3→C→4→D→5→E</Text>
+                <Text style={styles.ruleText}>Alternate between letters and their ordinal numbers (e.g. F→6→G→7→H→8)</Text>
               </View>
               <View style={styles.rule}>
                 <View style={styles.bulletPoint} />
-                <Text style={styles.ruleText}>Alternate between numbers and letters</Text>
+                <Text style={styles.ruleText}>Only the starting letter is shown — figure out the rest!</Text>
               </View>
               <View style={styles.rule}>
                 <View style={styles.bulletPoint} />
@@ -261,8 +286,8 @@ export default function TrailMaking() {
             {/* Stats */}
             <View style={styles.statsContainer}>
               <View style={styles.statCard}>
-                <Ionicons name="checkmark-circle-outline" size={20} color="#F59E0B" />
-                <Text style={styles.statText}>{currentIndex} / {circles.length}</Text>
+                <Text style={styles.statLabel}>Start:</Text>
+                <Text style={styles.statText}>{startLetter}</Text>
               </View>
               <View style={styles.instructionCard}>
                 <Text style={styles.instructionCardText}>Draw a continuous line without lifting your finger</Text>
@@ -640,11 +665,15 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#E5E7EB',
   },
+  statLabel: {
+    fontSize: 14,
+    color: '#6B7280',
+    marginRight: 4,
+  },
   statText: {
-    fontSize: 16,
+    fontSize: 20,
     fontWeight: '700',
-    color: '#1F2937',
-    marginLeft: 6,
+    color: '#F59E0B',
   },
   instructionCard: {
     flex: 1,

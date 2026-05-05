@@ -1,3 +1,4 @@
+import { Countdown } from '@/components/Countdown';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
@@ -43,6 +44,7 @@ type LineItem = {
 };
 
 export default function TrailMaking() {
+  const [countdown, setCountdown] = useState(false);
   const [gameStart, setGameStart] = useState(false);
   const [gameCompleted, setGameCompleted] = useState(false);
   const [startLetter, setStartLetter] = useState('');
@@ -263,11 +265,14 @@ export default function TrailMaking() {
               </View>
             </View>
 
-            <TouchableOpacity style={styles.startButton} onPress={gameStartState}>
+            <TouchableOpacity style={styles.startButton} onPress={() => setCountdown(true)}>
               <Text style={styles.startButtonText}>Begin Test</Text>
               <Ionicons name="arrow-forward" size={20} color="#FFFFFF" />
             </TouchableOpacity>
           </ScrollView>
+          {countdown && (
+            <Countdown onComplete={() => { setCountdown(false); gameStartState(); }} />
+          )}
         </>
       )}
 
@@ -464,7 +469,7 @@ export default function TrailMaking() {
               </View>
             </View>
 
-            <TouchableOpacity style={styles.retryButton} onPress={gameStartState}>
+            <TouchableOpacity style={styles.retryButton} onPress={() => setCountdown(true)}>
               <Ionicons name="refresh" size={20} color="#FFFFFF" />
               <Text style={styles.retryButtonText}>Try Again</Text>
             </TouchableOpacity>
@@ -472,6 +477,9 @@ export default function TrailMaking() {
               <Text style={styles.homeButtonText}>Back to Dashboard</Text>
             </TouchableOpacity>
           </ScrollView>
+          {countdown && (
+            <Countdown onComplete={() => { setCountdown(false); gameStartState(); }} />
+          )}
         </>
       )}
     </SafeAreaView>

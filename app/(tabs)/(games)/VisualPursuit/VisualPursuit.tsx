@@ -55,8 +55,7 @@ export default function VisualPursuit() {
     y: 50,
   });
   const [metrics, setMetrics] = useState<Metrics | null>(null);
-  const [calibStatus, setCalibStatus] = useState<"idle" | "checking" | "detected" | "centered">("idle");
-  const [cameraMode, setCameraMode] = useState<"picture" | "video">("picture");
+  const cameraMode = "video";
 
   const cameraRef = useRef<CameraView>(null);
   const ballYRef = useRef(50);
@@ -92,70 +91,10 @@ export default function VisualPursuit() {
     calibPollRef.current = null;
   };
 
-  const startCalibPolling = (onReady: () => void) => {
+  const startAlignThenProceed = (onReady: () => void) => {
     stopCalibPolling();
-    calibCountRef.current = 0;
-    calibStartRef.current = Date.now();
-    setCalibStatus("idle");
-    // Ensure picture mode — camera is already mounted so no need to reset cameraReadyRef
-    setCameraMode("picture");
-
-    const MAX_WAIT_MS = 25000;
-
-    const proceed = () => {
-      stopCalibPolling();
-      setCalibStatus("idle");
-      // Switch back to video mode for recording, mark camera not ready
-      setCameraMode("video");
-      cameraReadyRef.current = false;
-      pendingRecordRef.current = true; // onCameraReady will start recording
-      onReady();
-    };
-
-    const poll = async () => {
-      if (!isRunningRef.current) return;
-
-      if (Date.now() - calibStartRef.current >= MAX_WAIT_MS) {
-        proceed();
-        return;
-      }
-
-      if (cameraRef.current && cameraReadyRef.current) {
-        try {
-          setCalibStatus("checking");
-          const photo = await (cameraRef.current as any).takePictureAsync({
-            quality: 0.4,
-            skipProcessing: true,
-          });
-
-          const fd = new FormData();
-          fd.append("image", { uri: photo.uri, type: "image/jpeg", name: "calib.jpg" } as any);
-          const res = await fetch(`${API_BASE}/predict/image`, { method: "POST", body: fd });
-
-          if (res.ok) {
-            const data = await res.json();
-            if (data.pupil) {
-              // Eye detected — show green and auto-proceed after 2s
-              setCalibStatus("centered");
-              stopCalibPolling();
-              calibPollRef.current = setTimeout(proceed, 2000);
-              return;
-            } else {
-              setCalibStatus("idle");
-            }
-          } else {
-            setCalibStatus("idle");
-          }
-        } catch {
-          setCalibStatus("idle");
-          calibCountRef.current = 0;
-        }
-      }
-
-      calibPollRef.current = setTimeout(poll, 2500);
-    };
-
-    calibPollRef.current = setTimeout(poll, 300);
+    pendingRecordRef.current = true;
+    calibPollRef.current = setTimeout(onReady, 3000);
   };
 
   const cleanup = () => {
@@ -318,7 +257,7 @@ export default function VisualPursuit() {
       stopAnimation();
       portraitUriRef.current = await stopRecording();
       setPhase("align-landscape");
-      startCalibPolling(runLandscapeTest);
+      startAlignThenProceed(runLandscapeTest);
     }, TEST_DURATION * 1000);
   };
 
@@ -333,7 +272,7 @@ export default function VisualPursuit() {
     }).start(() => {
       resetBall();
       setPhase("align-portrait");
-      startCalibPolling(runPortraitTest);
+      startAlignThenProceed(runPortraitTest);
     });
   };
 
@@ -349,8 +288,6 @@ export default function VisualPursuit() {
     cameraReadyRef.current = false;
     pendingRecordRef.current = false;
     calibCountRef.current = 0;
-    setCalibStatus("idle");
-    setCameraMode("picture");
 
     if (!permission?.granted) {
       const result = await requestPermission();
@@ -613,28 +550,16 @@ export default function VisualPursuit() {
                 <View style={[
                   styles.faceOval,
                   isLandscapePhase ? styles.faceOvalLandscape : styles.faceOvalPortrait,
-                  calibStatus === "centered" && { borderColor: "#10B981", borderStyle: "solid" },
                 ]} />
               </View>
 
-              {/* Status + labels at bottom */}
+              {/* Labels at bottom */}
               <View style={styles.alignBottomSection}>
-                <View style={styles.calibStatusRow}>
-                  <View style={[
-                    styles.calibDot,
-                    calibStatus === "centered" && { backgroundColor: "#10B981" },
-                    calibStatus !== "centered" && { backgroundColor: "#9CA3AF" },
-                  ]} />
-                  <Text style={styles.calibStatusText}>
-                    {calibStatus === "centered" ? "Eye detected — starting in 2s..." :
-                     calibStatus === "checking" ? "Detecting eye..." :
-                     "Fit your face inside the oval"}
-                  </Text>
-                </View>
                 <Text style={styles.alignTitle}>
                   {isLandscapePhase ? "Hold phone sideways (landscape)" : "Hold phone upright (portrait)"}
                 </Text>
-                <Text style={styles.alignSubtitle}>Left eye should face the camera directly</Text>
+                <Text style={styles.alignSubtitle}>Position your face inside the oval</Text>
+                <Text style={styles.alignSubtitle}>Starting in 3 seconds...</Text>
               </View>
             </View>
           )}

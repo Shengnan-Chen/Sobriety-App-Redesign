@@ -1,3 +1,4 @@
+import { Countdown } from "@/components/Countdown";
 import StroopBrick from "@/components/StroopBricks";
 import { StroopGameGen } from "@/logic/StroopGameGen";
 import { Ionicons } from "@expo/vector-icons";
@@ -9,6 +10,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 
 export default function StroopNaming() {
   const router = useRouter();
+  const [countdown, setCountdown] = useState(false);
   const [color, setColor] = useState("");
   const [colorWord, setColorWord] = useState("");
   const [options, setGameOptions] = useState<string[]>([]);
@@ -105,7 +107,7 @@ export default function StroopNaming() {
               </Text>
             </View>
 
-            <TouchableOpacity style={styles.startButton} onPress={startGame}>
+            <TouchableOpacity style={styles.startButton} onPress={() => setCountdown(true)}>
               <Text style={styles.startButtonText}>Begin Test</Text>
               <Ionicons name="arrow-forward" size={20} color="#FFFFFF" />
             </TouchableOpacity>
@@ -203,7 +205,7 @@ export default function StroopNaming() {
             </View>
 
             {/* Action Buttons */}
-            <TouchableOpacity style={styles.retryButton} onPress={startGame}>
+            <TouchableOpacity style={styles.retryButton} onPress={() => setCountdown(true)}>
               <Ionicons name="refresh" size={20} color="#FFFFFF" />
               <Text style={styles.retryButtonText}>Try Again</Text>
             </TouchableOpacity>
@@ -216,6 +218,9 @@ export default function StroopNaming() {
           </ScrollView>
         )}
       </View>
+      {countdown && (
+        <Countdown onComplete={() => { setCountdown(false); startGame(); }} />
+      )}
     </SafeAreaView>
   );
 }

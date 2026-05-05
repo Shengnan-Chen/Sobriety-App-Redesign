@@ -1,3 +1,4 @@
+import { Countdown } from '@/components/Countdown';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
@@ -82,8 +83,9 @@ function jaccardDist(a: Set<string>, b: Set<string>): number {
 // ─────────────────────────────────────────────────────────────────────────────
 const SYMBOL_CHARS = [
   '>', '✓', '✕', 'Z', 'L', 'U', '◇', '△', 'W', '/',
-  'T', '+', '7', 'Λ', 'V', 'Π', 'Γ', '⊓', '<', '=',
+  'T', '+', '7', 'Λ', 'V', 'Π', 'Γ', '⊏', '<', '=',
 ];
+
 const SYMBOL_DESC  = [
   'Right chevron — TL→MR→BL',
   'Checkmark — TR→BM→ML',
@@ -92,19 +94,19 @@ const SYMBOL_DESC  = [
   'L shape — TL→BL→BR',
   'U shape — TL→BL→BR→TR',
   'Diamond — TC→MR→BC→ML (close the loop)',
-  'Triangle — BL→TC→BR',
-  'W shape — TL→BL→MC→BR→TR',
+  'Triangle — BL→TC→BR, then base BL→BR',
+  'W shape — TL→BL→TC→BR→TR',
   'Slash — BL to TR diagonal',
   'T shape — top bar (TL→TR) then center drop (TM→BM)',
   'Plus — horizontal mid (ML→MR) and vertical mid (TM→BM)',
-  '7 shape — TL→TR then down to BR (right side)',
-  'Up caret (Λ) — ML→TM→MR',
-  'Down caret (V) — ML→BM→MR',
+  '7 shape — TL→TR then diagonal to BL',
+  'Up caret — ML→TM→MR',
+  'Down caret — ML→BM→MR',
   'Pi (Π) — BL→TL→TR→BR (two sides + top bar)',
   'Gamma (Γ) — BL→TL→TR (reverse-L)',
-  'Cap (⊓) — TR→TL→BL then bottom BL→BR',
-  'Left chevron (<) — TR→ML→BR',
-  'Equals (=) — top edge TL→TR and bottom edge BL→BR',
+  'Cap (⊓) — TR→TL→BL→BR',
+  'Left chevron — TR→ML→BR',
+  'Equals — top edge TL→TR and bottom edge BL→BR',
 ];
 
 const CANONICAL_SEQS: number[][][] = [
@@ -115,12 +117,12 @@ const CANONICAL_SEQS: number[][][] = [
   [[0, 6, 8]],             // 4  L   shape
   [[0, 6, 8, 2]],          // 5  U   shape
   [[1, 5, 7, 3], [1, 3]],  // 6  ◇   diamond
-  [[6, 1, 8]],             // 7  △   triangle
-  [[0, 6, 4, 8, 2]],       // 8  W   shape
+  [[6, 1, 8], [6, 8]],     // 7  △   full triangle: two sides + base
+  [[0, 6, 1, 8, 2]],       // 8  W   shape TL→BL→TC→BR→TR
   [[6, 4, 2]],             // 9  /   slash
   [[0, 2], [1, 7]],        // 10 T   top bar + center drop
   [[3, 5], [1, 7]],        // 11 +   plus (two strokes)
-  [[0, 2, 8]],             // 12 7   top bar + right side down
+  [[0, 2, 6]],             // 12 7   top bar + diagonal to BL
   [[3, 1, 5]],             // 13 Λ   up caret
   [[3, 7, 5]],             // 14 V   down caret
   [[6, 0, 2, 8]],          // 15 Π   pi/arch (BL→TL→TR→BR)
@@ -248,6 +250,9 @@ const DIGITS = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
 
 export default function DSST() {
   const router = useRouter();
+
+  // ── countdown ──
+  const [countdown, setCountdown] = useState(false);
 
   // ── phase ──
   const [phase, setPhase] = useState<'intro' | 'playing' | 'results'>('intro');
@@ -432,7 +437,7 @@ export default function DSST() {
             <Text style={s.cardTitle}>All 20 symbols — learn them before playing</Text>
             {CANONICAL_SEQS.map((_, i) => (
               <View key={i} style={s.symbolRow}>
-                <MiniPreview symIdx={i} showDots={true} />
+                <MiniPreview symIdx={i} size={72} showDots={true} />
                 <View style={s.symbolInfo}>
                   <Text style={s.symbolChar}>{SYMBOL_CHARS[i]}</Text>
                   <Text style={s.symbolDesc} numberOfLines={2}>{SYMBOL_DESC[i]}</Text>
@@ -457,11 +462,14 @@ export default function DSST() {
             ))}
           </View>
 
-          <TouchableOpacity style={s.startBtn} onPress={startGame}>
+          <TouchableOpacity style={s.startBtn} onPress={() => setCountdown(true)}>
             <Text style={s.startBtnText}>Begin Test</Text>
             <Ionicons name="arrow-forward" size={20} color="#FFF" />
           </TouchableOpacity>
         </ScrollView>
+        {countdown && (
+          <Countdown onComplete={() => { setCountdown(false); startGame(); }} />
+        )}
       </SafeAreaView>
     );
   }
@@ -514,7 +522,7 @@ export default function DSST() {
             </View>
           </View>
 
-          <TouchableOpacity style={s.startBtn} onPress={startGame}>
+          <TouchableOpacity style={s.startBtn} onPress={() => setCountdown(true)}>
             <Ionicons name="refresh" size={20} color="#FFF" />
             <Text style={s.startBtnText}>Try Again</Text>
           </TouchableOpacity>
@@ -522,6 +530,9 @@ export default function DSST() {
             <Text style={s.ghostBtnText}>Back to Dashboard</Text>
           </TouchableOpacity>
         </ScrollView>
+        {countdown && (
+          <Countdown onComplete={() => { setCountdown(false); startGame(); }} />
+        )}
       </SafeAreaView>
     );
   }

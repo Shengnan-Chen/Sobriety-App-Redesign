@@ -1,3 +1,5 @@
+import { Countdown } from "@/components/Countdown";
+import { EmpaticaWalkTurnResult, fetchWalkTurnResults } from "@/lib/empaticaS3";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { useRouter } from "expo-router";
@@ -6,6 +8,7 @@ import * as Speech from "expo-speech";
 import { StatusBar } from "expo-status-bar";
 import { useEffect, useRef, useState } from "react";
 import {
+    ActivityIndicator,
     ScrollView,
     StyleSheet,
     Text,
@@ -17,8 +20,11 @@ import { SafeAreaView } from "react-native-safe-area-context";
 type TestPhase = "pocket" | "walk-forward" | "turn" | "walk-back" | "finished";
 
 export default function WalkAndTurn() {
+  const [countdown, setCountdown] = useState(false);
   const [gameStart, setGameStart] = useState(false);
   const [gameCompleted, setGameCompleted] = useState(false);
+  const [empaticaResult, setEmpaticaResult] = useState<EmpaticaWalkTurnResult | null>(null);
+  const [fetchingWatch, setFetchingWatch] = useState(false);
   const [testPhase, setTestPhase] = useState<TestPhase>("pocket");
 
   // Gyroscope data
@@ -29,6 +35,7 @@ export default function WalkAndTurn() {
 
   const gyroSubscription = useRef<any>(null);
   const phaseTimeoutRef = useRef<any>(null);
+  const gameStartTimeRef = useRef<Date | null>(null);
   const router = useRouter();
 
   // Cleanup on unmount
@@ -98,6 +105,8 @@ export default function WalkAndTurn() {
   const gameStartState = () => {
     setGameStart(true);
     setGameCompleted(false);
+    setEmpaticaResult(null);
+    gameStartTimeRef.current = new Date();
     setTestPhase("pocket");
     setForwardGyroSum(0);
     setBackGyroSum(0);
@@ -151,7 +160,20 @@ export default function WalkAndTurn() {
   const handleGameOver = () => {
     cleanupAll();
     setGameStart(false);
-    setGameCompleted(true);
+    setFetchingWatch(true); // show loading screen first
+
+    const endTime = new Date();
+    const startTime = gameStartTimeRef.current ?? new Date(endTime.getTime() - 60000);
+    console.log('[WalkAndTurn] Game over. Fetching watch data...');
+    console.log('[WalkAndTurn] Start time:', startTime.toISOString());
+    console.log('[WalkAndTurn] End time:', endTime.toISOString());
+
+    fetchWalkTurnResults(startTime, endTime).then(result => {
+      console.log('[WalkAndTurn] Watch data result:', JSON.stringify(result));
+      setEmpaticaResult(result);
+      setFetchingWatch(false);
+      setGameCompleted(true);
+    });
   };
 
   const calculateStabilityScore = () => {
@@ -206,6 +228,9 @@ export default function WalkAndTurn() {
   return (
     <SafeAreaView style={styles.container} edges={["top"]}>
       <StatusBar style="dark" />
+      {countdown && (
+        <Countdown onComplete={() => { setCountdown(false); gameStartState(); }} />
+      )}
 
       {/* INSTRUCTIONS SCREEN */}
       {!gameStart && !gameCompleted && (
@@ -313,7 +338,7 @@ export default function WalkAndTurn() {
 
             <TouchableOpacity
               style={styles.startButton}
-              onPress={gameStartState}
+              onPress={() => setCountdown(true)}
             >
               <Text style={styles.startButtonText}>Begin Test</Text>
               <Ionicons name="arrow-forward" size={20} color="#FFFFFF" />
@@ -407,6 +432,24 @@ export default function WalkAndTurn() {
         </>
       )}
 
+      {/* LOADING / FETCHING WATCH DATA */}
+      {fetchingWatch && !gameStart && !gameCompleted && (
+        <>
+          <View style={styles.header}>
+            <View style={styles.placeholder} />
+            <Text style={styles.headerTitle}>Fetching Watch Data...</Text>
+            <View style={styles.placeholder} />
+          </View>
+          <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', gap: 16, padding: 32 }}>
+            <ActivityIndicator size="large" color="#3B82F6" />
+            <Text style={{ fontSize: 18, fontWeight: '700', color: '#1F2937' }}>Syncing EmbracePlus Data</Text>
+            <Text style={{ fontSize: 14, color: '#6B7280', textAlign: 'center' }}>
+              Retrieving accelerometer and pulse rate from the watch...
+            </Text>
+          </View>
+        </>
+      )}
+
       {/* RESULT SCREEN */}
       {gameCompleted && (
         <>
@@ -475,9 +518,45 @@ export default function WalkAndTurn() {
               </View>
             </View>
 
+            {/* EmbracePlus Watch Data */}
+            <View style={styles.scoreCard}>
+              <Text style={styles.scoreLabel}>EmbracePlus Watch Data</Text>
+              {fetchingWatch ? (
+                <Text style={styles.statItemValue}>Fetching from watch...</Text>
+              ) : empaticaResult && empaticaResult.pulseRate.length > 0 ? (
+                <>
+                  <View style={{ flexDirection: 'row', paddingVertical: 6, borderBottomWidth: 1, borderBottomColor: '#E5E7EB', marginBottom: 4 }}>
+                    <Text style={[styles.statItemLabel, { flex: 1.2 }]}>Time</Text>
+                    <Text style={[styles.statItemLabel, { flex: 1, textAlign: 'center' }]}>Pulse</Text>
+                    <Text style={[styles.statItemLabel, { flex: 1, textAlign: 'center' }]}>Accel</Text>
+                    <Text style={[styles.statItemLabel, { flex: 1, textAlign: 'center' }]}>Steps</Text>
+                    <Text style={[styles.statItemLabel, { flex: 1, textAlign: 'right' }]}>Intensity</Text>
+                  </View>
+                  {empaticaResult.pulseRate.map((pr, i) => {
+                    const acc = empaticaResult.accelerometerStd[i];
+                    const steps = empaticaResult.stepCounts[i];
+                    const intensity = empaticaResult.activityIntensity[i];
+                    return (
+                      <View key={i} style={{ flexDirection: 'row', paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: '#F3F4F6' }}>
+                        <Text style={[styles.statItemValue, { flex: 1.2, fontSize: 11 }]}>{pr.datetime.slice(11, 16)}Z</Text>
+                        <Text style={[styles.statItemValue, { flex: 1, textAlign: 'center', fontSize: 11 }]}>{`${pr.value} bpm`}</Text>
+                        <Text style={[styles.statItemValue, { flex: 1, textAlign: 'center', fontSize: 11 }]}>{acc ? acc.value.toFixed(3) : '—'}</Text>
+                        <Text style={[styles.statItemValue, { flex: 1, textAlign: 'center', fontSize: 11 }]}>{steps ? steps.value.toFixed(0) : '—'}</Text>
+                        <Text style={[styles.statItemValue, { flex: 1, textAlign: 'right', fontSize: 11 }]}>{intensity ? intensity.value.toFixed(2) : '—'}</Text>
+                      </View>
+                    );
+                  })}
+                </>
+              ) : (
+                <Text style={[styles.statItemLabel, { textAlign: 'center' }]}>
+                  Watch data unavailable — check sync
+                </Text>
+              )}
+            </View>
+
             <TouchableOpacity
               style={styles.retryButton}
-              onPress={gameStartState}
+              onPress={() => setCountdown(true)}
             >
               <Ionicons name="refresh" size={20} color="#FFFFFF" />
               <Text style={styles.retryButtonText}>Try Again</Text>

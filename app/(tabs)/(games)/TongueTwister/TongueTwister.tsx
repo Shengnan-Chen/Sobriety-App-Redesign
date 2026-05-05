@@ -1,3 +1,4 @@
+import { Countdown } from '@/components/Countdown';
 import { GameTimer } from '@/components/GameTimer';
 import { Ionicons } from '@expo/vector-icons';
 import { RecordingPresets, requestRecordingPermissionsAsync, setAudioModeAsync, useAudioRecorder } from 'expo-audio';
@@ -43,6 +44,7 @@ type APIResponse = {
 };
 
 export default function TongueTwisters() {
+  const [countdown, setCountdown] = useState(false);
   const [gameStart, setGameStart] = useState(false);
   const [gameCompleted, setGameCompleted] = useState(false);
 
@@ -56,6 +58,7 @@ export default function TongueTwisters() {
   // expo-audio recorder (hook must be at component top level)
   const recorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
   const recordingUriRef = useRef<string | null>(null);
+  const isHandlingRef = useRef(false);
   
   // Scores (accumulated across all phrases)
   const [clarityScores, setClarityScores] = useState<number[]>([]);
@@ -73,6 +76,7 @@ export default function TongueTwisters() {
   }, []);
 
   const resetState = async () => {
+    isHandlingRef.current = false;
     await recorder.stop().catch(() => {});
     setGameStart(false);
     setGameCompleted(false);
@@ -301,9 +305,10 @@ console.log('✅ FormData created');
   };
 
   const handleNext = async () => {
+    if (isHandlingRef.current) return;
+    isHandlingRef.current = true;
     console.log('⏭️ === NEXT BUTTON PRESSED ===');
-    
-    // Stop current recording
+
     console.log('🛑 Stopping recording...');
     await stopRecording();
     console.log('✅ Recording stopped. URI:', recordingUriRef.current);
@@ -329,9 +334,12 @@ console.log('✅ FormData created');
     // Start recording for next phrase
     console.log('🎙️ Starting new recording...');
     await startRecording();
+    isHandlingRef.current = false;
   };
 
   const handleGameOver = async () => {
+    if (isHandlingRef.current) return;
+    isHandlingRef.current = true;
     await stopRecording();
     
     // Show loading state
@@ -348,6 +356,7 @@ console.log('✅ FormData created');
     setIsAnalyzing(false);
     setGameStart(false);
     setGameCompleted(true);
+    isHandlingRef.current = false;
     
     // Log final scores
     console.log('=== GAME OVER - FINAL SCORES ===');
@@ -357,23 +366,18 @@ console.log('✅ FormData created');
     console.log('Number of API responses:', apiResponses.length);
   };
 
-  // Calculate average scores
-  const avgClarity = clarityScores.length > 0 
-    ? Math.round(clarityScores.reduce((a, b) => a + b, 0) / clarityScores.length)
-    : 0;
-  
-  const avgArticulation = articulationScores.length > 0
-    ? Math.round(articulationScores.reduce((a, b) => a + b, 0) / articulationScores.length)
-    : 0;
-  
-  const avgSpeed = speedScores.length > 0
-    ? Math.round(speedScores.reduce((a, b) => a + b, 0) / speedScores.length)
-    : 0;
+  const avg = (key: keyof APIResponse) => {
+    const vals = apiResponses
+      .map(r => r[key])
+      .filter(v => typeof v === 'number' && !isNaN(v as number)) as number[];
+    return vals.length > 0 ? vals.reduce((a, b) => a + b, 0) / vals.length : null;
+  };
 
-  // Weighted overall: articulation 50% (accent-independent) + speed 30% + clarity 20% (accent-biased)
-  const overallScore = Math.round(
-    (avgClarity * 0.20) + (avgArticulation * 0.50) + (avgSpeed * 0.30)
-  );
+  const correctCount = apiResponses.filter(r => r.is_correct_reading).length;
+  const avgJitter = avg('jitter');
+  const avgShimmer = avg('shimmer');
+  const avgPER = avg('phoneme_error_rate');
+  const avgRate = avg('speaking_rate_word_per_sec');
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
@@ -474,11 +478,14 @@ console.log('✅ FormData created');
               </View>
             </View>
 
-            <TouchableOpacity style={styles.startButton} onPress={gameStartState}>
+            <TouchableOpacity style={styles.startButton} onPress={() => setCountdown(true)}>
               <Text style={styles.startButtonText}>Begin Test</Text>
               <Ionicons name="arrow-forward" size={20} color="#FFFFFF" />
             </TouchableOpacity>
           </ScrollView>
+          {countdown && (
+            <Countdown onComplete={() => { setCountdown(false); gameStartState(); }} />
+          )}
         </>
       )}
 
@@ -506,22 +513,6 @@ console.log('✅ FormData created');
               </View>
             </View>
 
-            {/* Recording Indicator */}
-            {isRecording && (
-              <View style={styles.recordingIndicator}>
-                <View style={styles.recordingDot} />
-                <Text style={styles.recordingText}>Recording</Text>
-              </View>
-            )}
-
-            {/* Analyzing Indicator */}
-            {isAnalyzing && (
-              <View style={styles.analyzingIndicator}>
-                <Ionicons name="analytics-outline" size={20} color="#3B82F6" />
-                <Text style={styles.analyzingText}>Analyzing...</Text>
-              </View>
-            )}
-
             {/* Tongue Twister Display */}
             <View style={styles.twisterCard}>
               <Ionicons name="chatbox-ellipses-outline" size={48} color="#F59E0B" />
@@ -530,9 +521,25 @@ console.log('✅ FormData created');
               </Text>
             </View>
 
-            {/* Next Button */}
-            <TouchableOpacity 
-              style={[styles.nextButton, isAnalyzing && styles.nextButtonDisabled]} 
+            {/* Status Banner */}
+            {isAnalyzing ? (
+              <View style={styles.statusBanner}>
+                <Ionicons name="analytics-outline" size={18} color="#3B82F6" />
+                <Text style={styles.statusBannerText}>Analyzing your speech...</Text>
+              </View>
+            ) : (
+              <View style={[styles.statusBanner, styles.statusBannerRecording]}>
+                <View style={styles.recordingPulse} />
+                <Text style={styles.statusBannerRecordingText}>Recording in progress — say the phrase above</Text>
+              </View>
+            )}
+
+            {/* Next instruction + button */}
+            {!isAnalyzing && (
+              <Text style={styles.nextHint}>When you're done speaking, press NEXT</Text>
+            )}
+            <TouchableOpacity
+              style={[styles.nextButton, isAnalyzing && styles.nextButtonDisabled]}
               onPress={handleNext}
               disabled={isAnalyzing}
             >
@@ -555,86 +562,49 @@ console.log('✅ FormData created');
           </View>
 
           <ScrollView contentContainerStyle={styles.resultScreen}>
-            <View style={[
-              styles.iconContainer,
-              { backgroundColor: overallScore >= 70 ? '#FEF3C7' : '#FEE2E2' }
-            ]}>
-              <Ionicons 
-                name={overallScore >= 70 ? "checkmark-circle" : "close-circle"} 
-                size={64} 
-                color={overallScore >= 70 ? "#F59E0B" : "#EF4444"} 
-              />
-            </View>
-
-            <Text style={styles.resultTitle}>
-              {overallScore >= 70 ? 'Excellent Speech!' : 'Test Complete'}
-            </Text>
-            <Text style={styles.resultSubtitle}>
-              {overallScore >= 70 
-                ? 'Your speech clarity is very good!' 
-                : 'Practice to improve articulation'}
-            </Text>
-
-            {/* Overall Score */}
-            <View style={styles.scoreCard}>
-              <Text style={styles.scoreLabel}>Overall Score</Text>
-              <Text style={styles.scoreValue}>{overallScore}</Text>
-              <Text style={styles.scoreSubtext}>out of 100</Text>
-              
-              <View style={styles.statsRow}>
-                <View style={styles.statItem}>
-                  <Text style={styles.statItemLabel}>Phrases</Text>
-                  <Text style={styles.statItemValue}>{phrasesCompleted}</Text>
-                </View>
-                <View style={styles.statItemDivider} />
-                <View style={styles.statItem}>
-                  <Text style={styles.statItemLabel}>Status</Text>
-                  <Text style={[
-                    styles.statItemValue,
-                    { color: overallScore >= 70 ? '#F59E0B' : '#EF4444' }
-                  ]}>
-                    {overallScore >= 70 ? 'Pass' : 'Fail'}
-                  </Text>
-                </View>
-              </View>
-            </View>
-
-            {/* Detailed Metrics */}
             <View style={styles.scoreCard}>
               <Text style={styles.scoreLabel}>Speech Analysis</Text>
-              
-              <View style={styles.metricRow}>
-                <View style={styles.metricItem}>
-                  <Text style={styles.metricLabel}>Clarity</Text>
-                  <Text style={styles.metricValue}>{avgClarity}/100</Text>
-                </View>
-                <View style={styles.metricBar}>
-                  <View style={[styles.metricBarFill, { width: `${avgClarity}%`, backgroundColor: '#F59E0B' }]} />
-                </View>
-              </View>
+              <Text style={[styles.metricLabel, { color: '#6B7280', marginBottom: 16 }]}>
+                Averaged across {apiResponses.length} phrase{apiResponses.length !== 1 ? 's' : ''}
+              </Text>
 
-              <View style={styles.metricRow}>
-                <View style={styles.metricItem}>
-                  <Text style={styles.metricLabel}>Articulation</Text>
-                  <Text style={styles.metricValue}>{avgArticulation}/100</Text>
+              {[
+                {
+                  label: 'Correct Readings',
+                  value: `${correctCount} / ${apiResponses.length}`,
+                  color: correctCount === apiResponses.length ? '#10B981' : '#F59E0B',
+                },
+                {
+                  label: 'Phoneme Error Rate',
+                  value: avgPER !== null ? avgPER.toFixed(3) : 'n/a',
+                  color: avgPER !== null && avgPER < 0.2 ? '#10B981' : '#EF4444',
+                },
+                {
+                  label: 'Jitter (vocal steadiness)',
+                  value: avgJitter !== null ? avgJitter.toFixed(4) : 'n/a',
+                  color: avgJitter !== null && avgJitter < 0.02 ? '#10B981' : avgJitter !== null && avgJitter < 0.05 ? '#F59E0B' : '#EF4444',
+                },
+                {
+                  label: 'Shimmer (amplitude control)',
+                  value: avgShimmer !== null ? avgShimmer.toFixed(4) : 'n/a',
+                  color: avgShimmer !== null && avgShimmer < 0.06 ? '#10B981' : avgShimmer !== null && avgShimmer < 0.15 ? '#F59E0B' : '#EF4444',
+                },
+                {
+                  label: 'Speaking Rate (words/sec)',
+                  value: avgRate !== null ? avgRate.toFixed(2) : 'n/a',
+                  color: avgRate !== null && avgRate >= 2.0 && avgRate <= 4.0 ? '#10B981' : '#F59E0B',
+                },
+              ].map(({ label, value, color }) => (
+                <View key={label} style={styles.metricRow}>
+                  <View style={styles.metricItem}>
+                    <Text style={styles.metricLabel}>{label}</Text>
+                    <Text style={[styles.metricValue, { color }]}>{value}</Text>
+                  </View>
                 </View>
-                <View style={styles.metricBar}>
-                  <View style={[styles.metricBarFill, { width: `${avgArticulation}%`, backgroundColor: '#10B981' }]} />
-                </View>
-              </View>
-
-              <View style={styles.metricRow}>
-                <View style={styles.metricItem}>
-                  <Text style={styles.metricLabel}>Speed</Text>
-                  <Text style={styles.metricValue}>{avgSpeed}/100</Text>
-                </View>
-                <View style={styles.metricBar}>
-                  <View style={[styles.metricBarFill, { width: `${avgSpeed}%`, backgroundColor: '#3B82F6' }]} />
-                </View>
-              </View>
+              ))}
             </View>
 
-            <TouchableOpacity style={styles.retryButton} onPress={gameStartState}>
+            <TouchableOpacity style={styles.retryButton} onPress={() => setCountdown(true)}>
               <Ionicons name="refresh" size={20} color="#FFFFFF" />
               <Text style={styles.retryButtonText}>Try Again</Text>
             </TouchableOpacity>
@@ -642,6 +612,9 @@ console.log('✅ FormData created');
               <Text style={styles.homeButtonText}>Back to Dashboard</Text>
             </TouchableOpacity>
           </ScrollView>
+          {countdown && (
+            <Countdown onComplete={() => { setCountdown(false); gameStartState(); }} />
+          )}
         </>
       )}
     </SafeAreaView>
@@ -848,6 +821,43 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: '#1F2937',
     marginLeft: 8,
+  },
+  statusBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#DBEAFE',
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 10,
+    marginBottom: 10,
+    gap: 8,
+  },
+  statusBannerText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#1E40AF',
+  },
+  statusBannerRecording: {
+    backgroundColor: '#FEE2E2',
+  },
+  recordingPulse: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    backgroundColor: '#EF4444',
+  },
+  statusBannerRecordingText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#991B1B',
+    flexShrink: 1,
+  },
+  nextHint: {
+    fontSize: 13,
+    color: '#6B7280',
+    textAlign: 'center',
+    marginBottom: 10,
   },
   recordingIndicator: {
     flexDirection: 'row',

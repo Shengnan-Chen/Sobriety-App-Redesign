@@ -1,3 +1,5 @@
+import { Countdown } from '@/components/Countdown';
+import { EmpaticaSingleLegResult, fetchSingleLegResults } from '@/lib/empaticaS3';
 import { GameTimer } from '@/components/GameTimer';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
@@ -9,6 +11,7 @@ import { Image, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'rea
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 export default function SingleLegStand() {
+  const [countdown, setCountdown] = useState(false);
   const [gameStart, setGameStart] = useState(false);
   const [gameCompleted, setGameCompleted] = useState(false);
   
@@ -22,6 +25,10 @@ export default function SingleLegStand() {
   const [stabilityScore, setStabilityScore] = useState(0);
 
   const gyroSubscription = useRef<any>(null);
+  const gameStartTimeRef = useRef<Date | null>(null);
+  const gameEndTimeRef = useRef<Date | null>(null);
+  const [empaticaResult, setEmpaticaResult] = useState<EmpaticaSingleLegResult | null>(null);
+  const [fetchingWatch, setFetchingWatch] = useState(false);
   const router = useRouter();
 
   const handleBackToDashboard = () => {
@@ -47,8 +54,10 @@ export default function SingleLegStand() {
     setGyroData({ x: 0, y: 0, z: 0 });
     setGyroSum({ x: 0, y: 0, z: 0 });
     setSampleCount(0);
+    setEmpaticaResult(null);
     setGameStart(true);
     setGameCompleted(false);
+    gameStartTimeRef.current = new Date();
     
     // Start gyroscope
     Gyroscope.setUpdateInterval(100); // 100ms = 0.1 seconds
@@ -93,11 +102,24 @@ export default function SingleLegStand() {
     );
     
     setGameCompleted(true);
+
+    // Fetch watch data from Empatica S3
+    const endTime = new Date();
+    gameEndTimeRef.current = endTime;
+    const startTime = gameStartTimeRef.current ?? new Date(endTime.getTime() - 60000);
+    setFetchingWatch(true);
+    fetchSingleLegResults(startTime, endTime).then(result => {
+      setEmpaticaResult(result);
+      setFetchingWatch(false);
+    });
   };
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
       <StatusBar style="dark" />
+      {countdown && (
+        <Countdown onComplete={() => { setCountdown(false); gameStartState(); }} />
+      )}
 
       {/* INSTRUCTIONS SCREEN */}
       {!gameStart && !gameCompleted && (
@@ -197,7 +219,7 @@ export default function SingleLegStand() {
               </View>
             </View>
 
-            <TouchableOpacity style={styles.startButton} onPress={gameStartState}>
+            <TouchableOpacity style={styles.startButton} onPress={() => setCountdown(true)}>
               <Text style={styles.startButtonText}>Begin Test</Text>
               <Ionicons name="arrow-forward" size={20} color="#FFFFFF" />
             </TouchableOpacity>
@@ -334,7 +356,62 @@ export default function SingleLegStand() {
               </View>
             </View>
 
-            <TouchableOpacity style={styles.retryButton} onPress={gameStartState}>
+            {/* EmbracePlus Watch Data */}
+            <View style={styles.scoreCard}>
+              <Text style={styles.scoreLabel}>EmbracePlus Watch Data</Text>
+              {fetchingWatch ? (
+                <Text style={[styles.gyroAxisLabel, { textAlign: 'center' }]}>Fetching from watch...</Text>
+              ) : empaticaResult && empaticaResult.pulseRate.length > 0 ? (
+                <>
+                  {/* Header */}
+                  <View style={{ flexDirection: 'row', paddingVertical: 6, borderBottomWidth: 1, borderBottomColor: '#E5E7EB', marginBottom: 4 }}>
+                    <Text style={[styles.gyroAxisLabel, { flex: 1.2 }]}>Time</Text>
+                    <Text style={[styles.gyroAxisLabel, { flex: 1, textAlign: 'center' }]}>Pulse</Text>
+                    <Text style={[styles.gyroAxisLabel, { flex: 1, textAlign: 'center' }]}>Accel</Text>
+                    <Text style={[styles.gyroAxisLabel, { flex: 1, textAlign: 'center' }]}>Intensity</Text>
+                    <Text style={[styles.gyroAxisLabel, { flex: 1, textAlign: 'right' }]}>Position</Text>
+                  </View>
+                  {empaticaResult.pulseRate.map((pr, i) => {
+                    const acc = empaticaResult.accelerometerStd[i];
+                    const intensity = empaticaResult.activityIntensity[i];
+                    const pos = empaticaResult.bodyPosition[i];
+                    return (
+                      <View key={i} style={{ flexDirection: 'row', paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: '#F3F4F6' }}>
+                        <Text style={[styles.gyroAxisValue, { flex: 1.2, fontSize: 11 }]}>{pr.datetime.slice(11, 16)}Z</Text>
+                        <Text style={[styles.gyroAxisValue, { flex: 1, textAlign: 'center', fontSize: 11 }]}>{`${pr.value} bpm`}</Text>
+                        <Text style={[styles.gyroAxisValue, { flex: 1, textAlign: 'center', fontSize: 11 }]}>{acc ? acc.value.toFixed(3) : '—'}</Text>
+                        <Text style={[styles.gyroAxisValue, { flex: 1, textAlign: 'center', fontSize: 11 }]}>{intensity ? intensity.value.toFixed(2) : '—'}</Text>
+                        <Text style={[styles.gyroAxisValue, { flex: 1, textAlign: 'right', fontSize: 11 }]}>{pos ? pos.value.toFixed(0) : '—'}</Text>
+                      </View>
+                    );
+                  })}
+                </>
+              ) : (
+                <Text style={[styles.gyroAxisLabel, { textAlign: 'center', marginBottom: 12 }]}>
+                  Watch data unavailable — sync may be delayed
+                </Text>
+              )}
+              {!fetchingWatch && (
+                <TouchableOpacity
+                  onPress={() => {
+                    if (fetchingWatch) return;
+                    const end = gameEndTimeRef.current ?? new Date();
+                    const start = gameStartTimeRef.current ?? new Date(end.getTime() - 60000);
+                    setFetchingWatch(true);
+                    setEmpaticaResult(null);
+                    fetchSingleLegResults(start, end).then(result => {
+                      setEmpaticaResult(result);
+                      setFetchingWatch(false);
+                    });
+                  }}
+                  style={{ alignSelf: 'center', marginTop: 8, paddingVertical: 8, paddingHorizontal: 20, backgroundColor: '#EEF2FF', borderRadius: 8 }}
+                >
+                  <Text style={{ color: '#6366F1', fontWeight: '600', fontSize: 14 }}>↻ Refresh Watch Data</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+
+            <TouchableOpacity style={styles.retryButton} onPress={() => setCountdown(true)}>
               <Ionicons name="refresh" size={20} color="#FFFFFF" />
               <Text style={styles.retryButtonText}>Try Again</Text>
             </TouchableOpacity>

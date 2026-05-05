@@ -1,3 +1,4 @@
+import { Countdown } from "@/components/Countdown";
 import { GameTimer } from "@/components/GameTimer";
 import { getRandomSentence } from "@/logic/Sentences";
 import { Ionicons } from "@expo/vector-icons";
@@ -18,6 +19,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 export default function TypingChallenge() {
   const router = useRouter();
   const inputRef = useRef<TextInput>(null);
+  const [countdown, setCountdown] = useState(false);
 
   const [currentSentence, setCurrentSentence] = useState("");
   const [userInput, setUserInput] = useState("");
@@ -199,7 +201,7 @@ export default function TypingChallenge() {
               </Text>
             </View>
 
-            <TouchableOpacity style={styles.startButton} onPress={startGame}>
+            <TouchableOpacity style={styles.startButton} onPress={() => setCountdown(true)}>
               <Text style={styles.startButtonText}>Begin Test</Text>
               <Ionicons name="arrow-forward" size={20} color="#FFFFFF" />
             </TouchableOpacity>
@@ -371,7 +373,7 @@ export default function TypingChallenge() {
             </View>
 
             {/* Action Buttons */}
-            <TouchableOpacity style={styles.retryButton} onPress={startGame}>
+            <TouchableOpacity style={styles.retryButton} onPress={() => setCountdown(true)}>
               <Ionicons name="refresh" size={20} color="#FFFFFF" />
               <Text style={styles.retryButtonText}>Try Again</Text>
             </TouchableOpacity>
@@ -384,6 +386,9 @@ export default function TypingChallenge() {
           </ScrollView>
         )}
       </View>
+      {countdown && (
+        <Countdown onComplete={() => { setCountdown(false); startGame(); }} />
+      )}
     </SafeAreaView>
   );
 }

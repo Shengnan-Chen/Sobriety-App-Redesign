@@ -1,6 +1,6 @@
 import { addDoc, collection, doc, getDocs, query, serverTimestamp, updateDoc, where } from 'firebase/firestore';
 import { db } from './firebase';
-import { EMPATICA_S3, EMPATICA_PARTICIPANT } from './empaticaConfig';
+import { EMPATICA_PARTICIPANT } from './empaticaConfig';
 
 export type GameType =
   | 'visual_pursuit'

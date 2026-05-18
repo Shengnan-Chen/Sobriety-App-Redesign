@@ -3,15 +3,32 @@ import { StatusBar } from 'expo-status-bar';
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
 import { Ionicons } from '@expo/vector-icons';
+import { registerUser } from '@/lib/auth';
 
 export default function SignUp() {
   const router = useRouter();
   const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
 
-  const handleSignUp = () => {
-    router.replace('/(tabs)/dashboard');
+  const handleSignUp = async () => {
+    setError('');
+    if (password !== confirmPassword) {
+      setError('Passwords do not match.');
+      return;
+    }
+    setLoading(true);
+    try {
+      await registerUser(email, password);
+      router.replace('/(tabs)/dashboard');
+    } catch (e: any) {
+      setError(e?.message ?? 'Registration failed. Please try again.');
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -73,8 +90,23 @@ export default function SignUp() {
             />
           </View>
 
-          <TouchableOpacity style={styles.button} onPress={handleSignUp}>
-            <Text style={styles.buttonText}>Register Account</Text>
+          <View style={styles.inputContainer}>
+            <Ionicons name="lock-closed-outline" size={20} color="#6B7280" style={styles.inputIcon} />
+            <TextInput
+              style={styles.input}
+              placeholder="Confirm Password"
+              placeholderTextColor="#9CA3AF"
+              value={confirmPassword}
+              onChangeText={setConfirmPassword}
+              secureTextEntry
+              autoCapitalize="none"
+            />
+          </View>
+
+          {error ? <Text style={styles.errorText}>{error}</Text> : null}
+
+          <TouchableOpacity style={styles.button} onPress={handleSignUp} disabled={loading}>
+            <Text style={styles.buttonText}>{loading ? 'Creating account...' : 'Create Account'}</Text>
             <Ionicons name="arrow-forward" size={20} color="#FFFFFF" style={styles.buttonIcon} />
           </TouchableOpacity>
 
@@ -105,4 +137,5 @@ const styles = StyleSheet.create({
   buttonIcon: { marginTop: 2 },
   linkText: { fontSize: 14, color: '#6B7280', textAlign: 'center' },
   linkTextBold: { color: '#4F46E5', fontWeight: '600' },
+  errorText: { fontSize: 13, color: '#EF4444', textAlign: 'center', marginBottom: 12, paddingHorizontal: 8 },
 });

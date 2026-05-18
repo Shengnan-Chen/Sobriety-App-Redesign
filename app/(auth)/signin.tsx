@@ -3,6 +3,7 @@ import { StatusBar } from 'expo-status-bar';
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
 import { Ionicons } from '@expo/vector-icons';
+import { loginUser } from '@/lib/auth';
 
 export default function SignIn() {
   const router = useRouter();
@@ -10,9 +11,20 @@ export default function SignIn() {
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
   const [password, setPassword] = useState('');
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
 
-  const handleSignIn = () => {
-    router.replace('/(tabs)/dashboard');
+  const handleSignIn = async () => {
+    setError('');
+    setLoading(true);
+    try {
+      await loginUser(email, password);
+      router.replace('/(tabs)/dashboard');
+    } catch (e: any) {
+      setError(e?.message ?? 'Sign in failed. Please try again.');
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -109,8 +121,10 @@ export default function SignIn() {
           </>
         )}
 
-        <TouchableOpacity style={styles.button} onPress={handleSignIn}>
-          <Text style={styles.buttonText}>Sign In</Text>
+        {error ? <Text style={styles.errorText}>{error}</Text> : null}
+
+        <TouchableOpacity style={styles.button} onPress={handleSignIn} disabled={loading}>
+          <Text style={styles.buttonText}>{loading ? 'Signing in...' : 'Sign In'}</Text>
           <Ionicons name="arrow-forward" size={20} color="#FFFFFF" style={styles.buttonIcon} />
         </TouchableOpacity>
 
@@ -143,4 +157,5 @@ const styles = StyleSheet.create({
   buttonIcon: { marginTop: 2 },
   linkText: { fontSize: 14, color: '#6B7280', textAlign: 'center' },
   linkTextBold: { color: '#4F46E5', fontWeight: '600' },
+  errorText: { fontSize: 13, color: '#EF4444', textAlign: 'center', marginBottom: 12, paddingHorizontal: 8 },
 });

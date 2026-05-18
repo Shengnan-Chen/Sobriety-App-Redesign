@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -c \"import sys,json; d=json.load\\(sys.stdin\\); [print\\(k,v\\) for k,v in {**d.get\\('dependencies',{}\\),**d.get\\('devDependencies',{}\\)}.items\\(\\)]\")",
+      "Bash(node -e \"const d=require\\('./package.json'\\); Object.entries\\({...d.dependencies,...d.devDependencies}\\).forEach\\(\\([k,v]\\)=>console.log\\(k,v\\)\\)\")",
+      "Bash(firebase firestore:delete game_results --recursive --project sobreity-test)",
+      "PowerShell(npm install -g firebase-tools 2>&1)",
+      "PowerShell(firebase --version)",
+      "PowerShell(gcloud --version 2>&1)"
+    ]
+  }
+}

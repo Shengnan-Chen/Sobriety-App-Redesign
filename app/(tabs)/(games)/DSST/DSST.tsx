@@ -1,4 +1,8 @@
-import { Countdown } from '@/components/Countdown';
+﻿import { Countdown } from '@/components/Countdown';
+import { ScoreTrendCard } from '@/components/ScoreTrendCard';
+import { saveGameResult } from '@/lib/firestore';
+import { EMPATICA_PARTICIPANT } from '@/lib/empaticaConfig';
+import { useSession } from '@/lib/SessionContext';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
@@ -12,10 +16,10 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-
-const { width } = Dimensions.get('window');
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Svg, { Circle, Line } from 'react-native-svg';
+
+const { width } = Dimensions.get('window');
 
 // ─────────────────────────────────────────────────────────────────────────────
 // GRID LAYOUT
@@ -86,28 +90,6 @@ const SYMBOL_CHARS = [
   'T', '+', '7', 'Λ', 'V', 'Π', 'Γ', '⊏', '<', '=',
 ];
 
-const SYMBOL_DESC  = [
-  'Right chevron — TL→MR→BL',
-  'Checkmark — TR→BM→ML',
-  'X cross — two strokes: TL→BR and TR→BL',
-  'Z shape — TL→TR, diagonal to BL, then BL→BR',
-  'L shape — TL→BL→BR',
-  'U shape — TL→BL→BR→TR',
-  'Diamond — TC→MR→BC→ML (close the loop)',
-  'Triangle — BL→TC→BR, then base BL→BR',
-  'W shape — TL→BL→TC→BR→TR',
-  'Slash — BL to TR diagonal',
-  'T shape — top bar (TL→TR) then center drop (TM→BM)',
-  'Plus — horizontal mid (ML→MR) and vertical mid (TM→BM)',
-  '7 shape — TL→TR then diagonal to BL',
-  'Up caret — ML→TM→MR',
-  'Down caret — ML→BM→MR',
-  'Pi (Π) — BL→TL→TR→BR (two sides + top bar)',
-  'Gamma (Γ) — BL→TL→TR (reverse-L)',
-  'Cap (⊓) — TR→TL→BL→BR',
-  'Left chevron — TR→ML→BR',
-  'Equals — top edge TL→TR and bottom edge BL→BR',
-];
 
 const CANONICAL_SEQS: number[][][] = [
   [[0, 5, 6]],             // 0  >   right chevron
@@ -250,6 +232,7 @@ const DIGITS = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
 
 export default function DSST() {
   const router = useRouter();
+  const { sessionMode, completeGame, isLastGame, savePartialSession, resetSession } = useSession();
 
   // ── countdown ──
   const [countdown, setCountdown] = useState(false);
@@ -263,6 +246,8 @@ export default function DSST() {
   const [currentDigit, setCurrentDigit] = useState(0);
   const [score, setScore]             = useState(0);
   const [totalAttempts, setTotalAttempts] = useState(0);
+  const scoreRef = useRef(0);
+  const attemptsRef = useRef(0);
 
   // ── drawing state (dot-connect pattern lock) ──
   // strokes: array of completed strokes (each stroke = array of dot indices)
@@ -279,6 +264,7 @@ export default function DSST() {
   // ── timer ──
   const [timeLeft, setTimeLeft] = useState(30);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const gameStartTimeRef = useRef<Date | null>(null);
 
   // ── canvas offset (for touch → canvas coord mapping) ──
   const canvasOffset = useRef({ x: 0, y: 0 });
@@ -303,12 +289,13 @@ export default function DSST() {
     stopTimer();
     const map = shuffle(Array.from({ length: 20 }, (_, i) => i)).slice(0, 10);
     setSessionMap(map);
-    setScore(0);
-    setTotalAttempts(0);
+    setScore(0); scoreRef.current = 0;
+    setTotalAttempts(0); attemptsRef.current = 0;
     setTimeLeft(30);
     clearDrawing();
     setCurrentDigit(Math.floor(Math.random() * 10));
     setPhase('playing');
+    gameStartTimeRef.current = new Date();
 
     let remaining = 30;
     timerRef.current = setInterval(() => {
@@ -317,7 +304,22 @@ export default function DSST() {
       if (remaining <= 0) {
         clearInterval(timerRef.current!);
         timerRef.current = null;
-        setPhase('results');
+        const metricsPayload = {
+          score: scoreRef.current,
+          totalAttempts: attemptsRef.current,
+          accuracy: attemptsRef.current > 0 ? Math.round((scoreRef.current / attemptsRef.current) * 100) : 0,
+        };
+        if (sessionMode === 'full_session') {
+          completeGame('dsst', metricsPayload, gameStartTimeRef.current ?? new Date());
+          if (isLastGame()) {
+            router.replace('/session-results');
+          } else {
+            router.replace('/session-transition');
+          }
+        } else {
+          saveGameResult('dsst', EMPATICA_PARTICIPANT.fullId, gameStartTimeRef.current ?? new Date(), new Date(), metricsPayload);
+          setPhase('results');
+        }
       }
     }, 1000);
   }, [clearDrawing, stopTimer]);
@@ -332,6 +334,10 @@ export default function DSST() {
   }, [clearDrawing, stopTimer]);
 
   const handleBackToDashboard = useCallback(() => {
+    if (sessionMode === 'full_session') {
+      savePartialSession();
+      resetSession();
+    }
     stopTimer();
     setPhase('intro');
     setScore(0);
@@ -339,7 +345,7 @@ export default function DSST() {
     setTimeLeft(30);
     clearDrawing();
     router.replace('/(tabs)/dashboard');
-  }, [router, clearDrawing, stopTimer]);
+  }, [router, clearDrawing, stopTimer, sessionMode, savePartialSession, resetSession]);
 
   // ─── pattern lock pan responder ─────────────────────────────────────────
   const panResponder = useRef(
@@ -396,8 +402,8 @@ export default function DSST() {
     const expected   = sessionMap[currentDigit];
     const correct    = recognized === expected;
 
-    if (correct) setScore(s => s + 1);
-    setTotalAttempts(t => t + 1);
+    if (correct) { setScore(s => { scoreRef.current = s + 1; return s + 1; }); }
+    setTotalAttempts(t => { attemptsRef.current = t + 1; return t + 1; });
     setFeedback(correct ? 'correct' : 'wrong');
 
     setTimeout(() => {
@@ -440,7 +446,6 @@ export default function DSST() {
                 <MiniPreview symIdx={i} size={72} showDots={true} />
                 <View style={s.symbolInfo}>
                   <Text style={s.symbolChar}>{SYMBOL_CHARS[i]}</Text>
-                  <Text style={s.symbolDesc} numberOfLines={2}>{SYMBOL_DESC[i]}</Text>
                 </View>
               </View>
             ))}
@@ -449,11 +454,8 @@ export default function DSST() {
           <View style={s.rulesCard}>
             <Text style={s.rulesTitle}>Rules</Text>
             {[
-              '15–20 items per session, then results are shown',
-              '10 of 20 symbols chosen randomly each session',
-              'Drag through the dots to draw the symbol',
-              'Tap Clear to redo, Submit to confirm',
-              'You advance whether correct or not',
+              'At the start of each session, the game will randomly choose 10 of the 20 above symbols.',
+              'These symbols will remain unchanged throughout your current session.',
             ].map((r, i) => (
               <View key={i} style={s.ruleRow}>
                 <View style={s.bullet} />
@@ -521,6 +523,12 @@ export default function DSST() {
               </View>
             </View>
           </View>
+
+          <ScoreTrendCard
+            gameType="dsst"
+            participantId="2872-1-1-1"
+            currentMetrics={{ score, accuracy: acc, totalAttempts }}
+          />
 
           <TouchableOpacity style={s.startBtn} onPress={() => setCountdown(true)}>
             <Ionicons name="refresh" size={20} color="#FFF" />
@@ -819,3 +827,4 @@ const s = StyleSheet.create({
   statLabel:  { fontSize: 11, color: '#6B7280', marginBottom: 4 },
   statValue:  { fontSize: 20, fontWeight: '700', color: '#1F2937' },
 });
+

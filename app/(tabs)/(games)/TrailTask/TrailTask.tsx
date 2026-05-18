@@ -1,4 +1,8 @@
-import { Countdown } from '@/components/Countdown';
+﻿import { Countdown } from '@/components/Countdown';
+import { ScoreTrendCard } from '@/components/ScoreTrendCard';
+import { saveGameResult } from '@/lib/firestore';
+import { EMPATICA_PARTICIPANT } from '@/lib/empaticaConfig';
+import { useSession } from '@/lib/SessionContext';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
@@ -24,7 +28,7 @@ function buildSequence(): { sequence: string[]; startLetter: string } {
     const letterIdx = startIdx + i;
     sequence.push(String.fromCharCode(65 + letterIdx)); // letter
     if (i < numLetters - 1) {
-      sequence.push(String(letterIdx + 1)); // ordinal (F→6, G→7 …)
+      sequence.push(String(i + 1)); // always 1, 2, 3, … regardless of start letter
     }
   }
   return { sequence, startLetter: String.fromCharCode(65 + startIdx) };
@@ -56,6 +60,8 @@ export default function TrailMaking() {
   const [startTime, setStartTime] = useState<number>(0);
   const [completionTime, setCompletionTime] = useState<number>(0);
   const [isFailed, setIsFailed] = useState(false);
+  const [errorCount, setErrorCount] = useState(0);
+  const errorCountRef = useRef(0);
 
   // Finger tracking
   const [fingerDown, setFingerDown] = useState(false);
@@ -63,6 +69,7 @@ export default function TrailMaking() {
   const [lastTouchedCircle, setLastTouchedCircle] = useState<number | null>(null);
 
   const router = useRouter();
+  const { sessionMode, completeGame, isLastGame, savePartialSession, resetSession } = useSession();
 
   // Cleanup on unmount
   useEffect(() => {
@@ -92,7 +99,7 @@ export default function TrailMaking() {
     const margin = 50;
 
     sequence.forEach((label, index) => {
-      let x, y;
+      let x: number, y: number;
       let attempts = 0;
       
       do {
@@ -131,28 +138,52 @@ export default function TrailMaking() {
           setConnectedLines(prev => [...prev, { from: previousCircle, to: circle }]);
         }
       }
-      
+
       setCurrentIndex(currentIndex + 1);
-      
+
       // Check if completed ALL circles
       if (currentIndex === circles.length - 1) {
-        const endTime = Date.now();
-        setCompletionTime(Math.round((endTime - startTime) / 1000));
-        setGameCompleted(true);
-        setGameStart(false);
-        setIsFailed(false);
-        setFingerDown(false);
+        finishGame(Date.now(), false, circles.length, circles.length);
       }
     } else if (circle.sequenceIndex > currentIndex) {
-      // ❌ WRONG - skipped a circle
-      const endTime = Date.now();
-      setCompletionTime(Math.round((endTime - startTime) / 1000));
-      setGameCompleted(true);
-      setGameStart(false);
-      setIsFailed(true);
-      setFingerDown(false);
+      // ❌ WRONG - crossed an out-of-sequence circle
+      errorCountRef.current += 1;
+      setErrorCount(errorCountRef.current);
+      finishGame(Date.now(), true, currentIndex, circles.length);
     }
     // Ignore if already completed circle
+  };
+
+  const finishGame = (endMs: number, failed: boolean, progressIndex: number, totalCircles: number) => {
+    const duration = Math.round((endMs - startTime) / 1000);
+    setCompletionTime(duration);
+    setGameCompleted(true);
+    setGameStart(false);
+    setIsFailed(failed);
+    setFingerDown(false);
+    const metricsPayload = {
+      completionTimeSeconds: duration,
+      passed: !failed,
+      circlesCompleted: progressIndex,
+      totalCircles,
+      errorCount: errorCountRef.current,
+    };
+    if (sessionMode === 'full_session') {
+      completeGame('trail_task', metricsPayload, new Date(startTime));
+      if (isLastGame()) {
+        router.replace('/session-results');
+      } else {
+        router.replace('/session-transition');
+      }
+    } else {
+      saveGameResult(
+        'trail_task',
+        EMPATICA_PARTICIPANT.fullId,
+        new Date(startTime),
+        new Date(endMs),
+        metricsPayload
+      );
+    }
   };
 
   const gameStartState = () => {
@@ -167,6 +198,7 @@ export default function TrailMaking() {
     setGameStart(true);
     setGameCompleted(false);
     setIsFailed(false);
+    setErrorCount(0); errorCountRef.current = 0;
     setFingerDown(false);
     setFingerPath([]);
     setLastTouchedCircle(null);
@@ -201,51 +233,12 @@ export default function TrailMaking() {
               Connect the circles in order by drawing a continuous line. Do not lift your finger!
             </Text>
 
-            {/* Example Section */}
-            <View style={styles.exampleBox}>
-              <Text style={styles.exampleLabel}>How it works:</Text>
-
-              <Text style={styles.stepTitle}>Example Sequence Pattern:</Text>
-              <View style={styles.sequenceContainer}>
-                <View style={styles.sequenceItem}>
-                  <Text style={styles.sequenceText}>F</Text>
-                </View>
-                <Ionicons name="arrow-forward" size={20} color="#F59E0B" />
-                <View style={styles.sequenceItem}>
-                  <Text style={styles.sequenceText}>6</Text>
-                </View>
-                <Ionicons name="arrow-forward" size={20} color="#F59E0B" />
-                <View style={styles.sequenceItem}>
-                  <Text style={styles.sequenceText}>G</Text>
-                </View>
-                <Ionicons name="arrow-forward" size={20} color="#F59E0B" />
-                <View style={styles.sequenceItem}>
-                  <Text style={styles.sequenceText}>7</Text>
-                </View>
-                <Ionicons name="arrow-forward" size={20} color="#F59E0B" />
-                <View style={styles.sequenceItem}>
-                  <Text style={styles.sequenceText}>H</Text>
-                </View>
-                <Ionicons name="arrow-forward" size={20} color="#F59E0B" />
-                <View style={styles.sequenceItem}>
-                  <Text style={styles.sequenceText}>8</Text>
-                </View>
-              </View>
-
-              <View style={styles.exampleNote}>
-                <Ionicons name="information-circle" size={20} color="#F59E0B" />
-                <Text style={styles.exampleNoteText}>
-                  Draw one continuous line through all circles in order
-                </Text>
-              </View>
-            </View>
-
             {/* Rules */}
             <View style={styles.rulesBox}>
               <Text style={styles.rulesTitle}>Test Rules:</Text>
               <View style={styles.rule}>
                 <View style={styles.bulletPoint} />
-                <Text style={styles.ruleText}>Alternate between letters and their ordinal numbers (e.g. F→6→G→7→H→8)</Text>
+                <Text style={styles.ruleText}>Alternate between letters and numbers starting from 1 (e.g. F→1→G→2→H→3)</Text>
               </View>
               <View style={styles.rule}>
                 <View style={styles.bulletPoint} />
@@ -253,11 +246,11 @@ export default function TrailMaking() {
               </View>
               <View style={styles.rule}>
                 <View style={styles.bulletPoint} />
-                <Text style={styles.ruleText}>⚠️ Keep finger down - lifting finger = TEST FAILS</Text>
+                <Text style={styles.ruleText}>Do not cross an out-of-sequence letter or number in an attempt to get to the next correct symbol</Text>
               </View>
               <View style={styles.rule}>
                 <View style={styles.bulletPoint} />
-                <Text style={styles.ruleText}>Draw a continuous trail through all circles</Text>
+                <Text style={styles.ruleText}>⚠️ Keep finger down — lifting your finger ends the test</Text>
               </View>
               <View style={styles.rule}>
                 <View style={styles.bulletPoint} />
@@ -334,11 +327,7 @@ export default function TrailMaking() {
               onTouchEnd={() => {
                 if (fingerDown && currentIndex < circles.length) {
                   // User lifted finger before completing - FAIL
-                  const endTime = Date.now();
-                  setCompletionTime(Math.round((endTime - startTime) / 1000));
-                  setGameCompleted(true);
-                  setGameStart(false);
-                  setIsFailed(true);
+                  finishGame(Date.now(), true, currentIndex, circles.length);
                 }
                 setFingerDown(false);
                 setFingerPath([]);
@@ -468,6 +457,15 @@ export default function TrailMaking() {
                 </View>
               </View>
             </View>
+
+            <ScoreTrendCard
+              gameType="trail_task"
+              participantId="2872-1-1-1"
+              currentMetrics={{
+                completionTimeSeconds: completionTime,
+                errorCount,
+              }}
+            />
 
             <TouchableOpacity style={styles.retryButton} onPress={() => setCountdown(true)}>
               <Ionicons name="refresh" size={20} color="#FFFFFF" />

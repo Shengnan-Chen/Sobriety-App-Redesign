@@ -1,5 +1,10 @@
-import { Countdown } from '@/components/Countdown';
+﻿import { Countdown } from '@/components/Countdown';
 import { GameTimer } from '@/components/GameTimer';
+import { TongueTwisterHistoryChart } from '@/components/TongueTwisterHistoryChart';
+import { saveGameResult } from '@/lib/firestore';
+import { EMPATICA_PARTICIPANT } from '@/lib/empaticaConfig';
+import { uploadAudio } from '@/lib/firebaseStorage';
+import { useSession } from '@/lib/SessionContext';
 import { Ionicons } from '@expo/vector-icons';
 import { RecordingPresets, requestRecordingPermissionsAsync, setAudioModeAsync, useAudioRecorder } from 'expo-audio';
 import * as FileSystem from 'expo-file-system/legacy';
@@ -59,14 +64,18 @@ export default function TongueTwisters() {
   const recorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
   const recordingUriRef = useRef<string | null>(null);
   const isHandlingRef = useRef(false);
+  const gameStartTimeRef = useRef<Date | null>(null);
+  // Tracks API responses in a ref so handleGameOver can read the final list
+  // without relying on the setState updater pattern (which is illegal in React).
+  const apiResponsesRef = useRef<APIResponse[]>([]);
+  // Tracks local file paths for every phrase recording so they can be uploaded at game end
+  const phraseUrisRef = useRef<string[]>([]);
   
   // Scores (accumulated across all phrases)
-  const [clarityScores, setClarityScores] = useState<number[]>([]);
-  const [articulationScores, setArticulationScores] = useState<number[]>([]);
-  const [speedScores, setSpeedScores] = useState<number[]>([]);
   const [apiResponses, setApiResponses] = useState<APIResponse[]>([]);
 
   const router = useRouter();
+  const { sessionMode, completeGame, updateGameResult, addPendingJob, isLastGame, savePartialSession, resetSession } = useSession();
 
   // Cleanup recording on unmount
   useEffect(() => {
@@ -84,10 +93,9 @@ export default function TongueTwisters() {
     setPhrasesCompleted(0);
     setIsRecording(false);
     setIsAnalyzing(false);
-    setClarityScores([]);
-    setArticulationScores([]);
-    setSpeedScores([]);
     setApiResponses([]);
+    apiResponsesRef.current = [];
+    phraseUrisRef.current = [];
   };
 
   const handleBackToIntro = async () => {
@@ -95,6 +103,10 @@ export default function TongueTwisters() {
   };
 
   const handleBackToDashboard = async () => {
+    if (sessionMode === 'full_session') {
+      savePartialSession();
+      resetSession();
+    }
     await resetState();
     router.replace('/(tabs)/dashboard');
   };
@@ -120,20 +132,19 @@ export default function TongueTwisters() {
   };
 
   const stopRecording = async () => {
-    console.log('🛑 === STOP RECORDING ===');
     try {
       await recorder.stop();
       const uri = recorder.uri;
-      console.log('📍 Recording URI:', uri);
       if (uri) {
-        const dest = FileSystem.documentDirectory + 'recording_upload.m4a';
+        // Save to a unique path per phrase so recordings aren't overwritten
+        const dest = FileSystem.documentDirectory + `tt_phrase_${Date.now()}.m4a`;
         await FileSystem.copyAsync({ from: uri, to: dest });
         recordingUriRef.current = dest;
+        phraseUrisRef.current = [...phraseUrisRef.current, dest];
       } else {
-        recordingUriRef.current = uri;
+        recordingUriRef.current = null;
       }
       setIsRecording(false);
-      console.log('✅ Recording stopped');
     } catch (err) {
       console.error('💥 Failed to stop recording', err);
     }
@@ -206,26 +217,9 @@ console.log('✅ FormData created');
       console.log('  - Articulation:', articulation);
       console.log('  - Speed:', speed);
 
-      // Store scores
-      console.log('💾 Storing scores...');
-      setClarityScores(prev => {
-        const newScores = [...prev, clarity];
-        console.log('💾 Clarity scores updated:', newScores);
-        return newScores;
-      });
-      setArticulationScores(prev => {
-        const newScores = [...prev, articulation];
-        console.log('💾 Articulation scores updated:', newScores);
-        return newScores;
-      });
-      setSpeedScores(prev => {
-        const newScores = [...prev, speed];
-        console.log('💾 Speed scores updated:', newScores);
-        return newScores;
-      });
       setApiResponses(prev => {
         const newResponses = [...prev, result];
-        console.log('💾 API responses updated. Total count:', newResponses.length);
+        apiResponsesRef.current = newResponses;
         return newResponses;
       });
 
@@ -245,11 +239,7 @@ console.log('✅ FormData created');
         `${errorMessage}\n\nUsing default scores for now.`
       );
       
-      // Fallback scores
-      console.log('⚠️ Using fallback scores (50, 50, 50)');
-      setClarityScores(prev => [...prev, 50]);
-      setArticulationScores(prev => [...prev, 50]);
-      setSpeedScores(prev => [...prev, 50]);
+      console.log('⚠️ Analysis failed — no fallback scores recorded');
     }
   };
 
@@ -295,11 +285,11 @@ console.log('✅ FormData created');
     setGameCompleted(false);
     setCurrentIndex(0);
     setPhrasesCompleted(0);
-    setClarityScores([]);
-    setArticulationScores([]);
-    setSpeedScores([]);
     setApiResponses([]);
-    
+    apiResponsesRef.current = [];
+    phraseUrisRef.current = [];
+    gameStartTimeRef.current = new Date();
+
     // Start recording immediately
     await startRecording();
   };
@@ -337,33 +327,112 @@ console.log('✅ FormData created');
     isHandlingRef.current = false;
   };
 
+  const buildMetrics = (responses: APIResponse[]) => {
+    const avgVal = (key: keyof APIResponse) => {
+      const vals = responses
+        .map(r => r[key])
+        .filter(v => typeof v === 'number' && !isNaN(v as number)) as number[];
+      return vals.length > 0 ? vals.reduce((a, b) => a + b, 0) / vals.length : null;
+    };
+    return {
+      phrasesCompleted: responses.length,
+      avgJitter: avgVal('jitter'),
+      avgShimmer: avgVal('shimmer'),
+      avgPhonemeErrorRate: avgVal('phoneme_error_rate'),
+      avgSpeakingRate: avgVal('speaking_rate_word_per_sec'),
+      correctReadings: responses.filter(r => r.is_correct_reading).length,
+    };
+  };
+
   const handleGameOver = async () => {
     if (isHandlingRef.current) return;
     isHandlingRef.current = true;
     await stopRecording();
-    
-    // Show loading state
+
+    if (sessionMode === 'full_session') {
+      // Session mode: don't block. Call completeGame immediately with the responses
+      // we already have (all phrases except the last), then analyze the last phrase
+      // in the background so the session can keep moving.
+      const responsesBeforeLast = apiResponsesRef.current;
+      const capturedUri = recordingUriRef.current;
+      const capturedPhrase = shuffledPhrases[currentIndex];
+      const capturedStartTime = gameStartTimeRef.current ?? new Date();
+
+      completeGame('tongue_twister', buildMetrics(responsesBeforeLast), capturedStartTime);
+      if (isLastGame()) {
+        router.replace('/session-results');
+      } else {
+        router.replace('/session-transition');
+      }
+
+      // Background: analyze last phrase + upload all recordings
+      const capturedPhraseUris = [...phraseUrisRef.current];
+      const capturedPhrases = [...shuffledPhrases];
+      const job = (async (): Promise<void> => {
+        // Analyze last phrase
+        let extraResponse: APIResponse | null = null;
+        if (capturedUri) {
+          try {
+            const formData = new FormData();
+            formData.append('reference_text', capturedPhrase);
+            formData.append('audio_file', getAudioMeta(capturedUri) as any);
+            const res = await fetch(API_URL, { method: 'POST', body: formData });
+            if (res.ok) extraResponse = await res.json();
+          } catch (e) {
+            console.log('[TT] Background last-phrase analysis failed:', e);
+          }
+        }
+        const allResponses = extraResponse
+          ? [...responsesBeforeLast, extraResponse]
+          : responsesBeforeLast;
+        // Upload all phrase recordings
+        const audioUrls = await Promise.all(
+          capturedPhraseUris.map((uri, i) =>
+            uploadAudio(uri, EMPATICA_PARTICIPANT.fullId, capturedPhrases[i] ?? `phrase_${i}`, i).catch(() => null)
+          )
+        );
+        updateGameResult('tongue_twister', {
+          ...buildMetrics(allResponses),
+          audioUrls: audioUrls.filter(Boolean),
+        });
+      })();
+      addPendingJob(job);
+
+      setGameStart(false);
+      setGameCompleted(true);
+      isHandlingRef.current = false;
+      return;
+    }
+
+    // Individual mode: show loading screen, await last phrase analysis, then results
     setIsAnalyzing(true);
-    
-    // Analyze the last recording
     if (recordingUriRef.current) {
       await analyzeRecording(recordingUriRef.current, shuffledPhrases[currentIndex]);
     }
-    
-    // Wait a bit to ensure all async operations complete
-    await new Promise(resolve => setTimeout(resolve, 1000));
-    
+    await new Promise(resolve => setTimeout(resolve, 500));
     setIsAnalyzing(false);
     setGameStart(false);
     setGameCompleted(true);
+
+    const finalResponses = apiResponsesRef.current;
+    console.log('[TT] Game over — responses collected:', finalResponses.length);
+
+    // Upload all phrase recordings and include URLs in saved result
+    const audioUrls = await Promise.all(
+      phraseUrisRef.current.map((uri, i) =>
+        uploadAudio(uri, EMPATICA_PARTICIPANT.fullId, shuffledPhrases[i] ?? `phrase_${i}`, i).catch(() => null)
+      )
+    );
+
+    saveGameResult(
+      'tongue_twister',
+      EMPATICA_PARTICIPANT.fullId,
+      gameStartTimeRef.current ?? new Date(),
+      new Date(),
+      { ...buildMetrics(finalResponses), audioUrls: audioUrls.filter(Boolean) },
+    );
+
     isHandlingRef.current = false;
-    
-    // Log final scores
-    console.log('=== GAME OVER - FINAL SCORES ===');
-    console.log('Clarity scores array:', clarityScores);
-    console.log('Articulation scores array:', articulationScores);
-    console.log('Speed scores array:', speedScores);
-    console.log('Number of API responses:', apiResponses.length);
   };
 
   const avg = (key: keyof APIResponse) => {
@@ -603,6 +672,17 @@ console.log('✅ FormData created');
                 </View>
               ))}
             </View>
+
+            <TongueTwisterHistoryChart
+              participantId="2872-1-1-1"
+              currentMetrics={{
+                correctReadings: correctCount,
+                avgJitter,
+                avgShimmer,
+                avgPhonemeErrorRate: avgPER,
+                avgSpeakingRate: avgRate,
+              }}
+            />
 
             <TouchableOpacity style={styles.retryButton} onPress={() => setCountdown(true)}>
               <Ionicons name="refresh" size={20} color="#FFFFFF" />

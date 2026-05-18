@@ -1,5 +1,9 @@
-import { Countdown } from "@/components/Countdown";
+﻿import { Countdown } from "@/components/Countdown";
+import { ScoreTrendCard } from "@/components/ScoreTrendCard";
 import { EmpaticaWalkTurnResult, fetchWalkTurnResults } from "@/lib/empaticaS3";
+import { saveGameResult } from "@/lib/firestore";
+import { EMPATICA_PARTICIPANT } from "@/lib/empaticaConfig";
+import { useSession } from "@/lib/SessionContext";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { useRouter } from "expo-router";
@@ -36,7 +40,12 @@ export default function WalkAndTurn() {
   const gyroSubscription = useRef<any>(null);
   const phaseTimeoutRef = useRef<any>(null);
   const gameStartTimeRef = useRef<Date | null>(null);
+  const forwardGyroSumRef = useRef(0);
+  const backGyroSumRef = useRef(0);
+  const forwardSamplesRef = useRef(0);
+  const backSamplesRef = useRef(0);
   const router = useRouter();
+  const { sessionMode, completeGame, isLastGame, savePartialSession, resetSession } = useSession();
 
   // Cleanup on unmount
   useEffect(() => {
@@ -59,6 +68,7 @@ export default function WalkAndTurn() {
   };
 
   const handleBackToDashboard = () => {
+    if (sessionMode === 'full_session') { savePartialSession(); resetSession(); }
     cleanupAll();
     setGameStart(false);
     setGameCompleted(false);
@@ -85,11 +95,11 @@ export default function WalkAndTurn() {
       const movement = Math.abs(data.x) + Math.abs(data.y) + Math.abs(data.z);
 
       if (isForward) {
-        setForwardGyroSum((prev) => prev + movement);
-        setForwardSamples((prev) => prev + 1);
+        setForwardGyroSum((prev) => { forwardGyroSumRef.current = prev + movement; return prev + movement; });
+        setForwardSamples((prev) => { forwardSamplesRef.current = prev + 1; return prev + 1; });
       } else {
-        setBackGyroSum((prev) => prev + movement);
-        setBackSamples((prev) => prev + 1);
+        setBackGyroSum((prev) => { backGyroSumRef.current = prev + movement; return prev + movement; });
+        setBackSamples((prev) => { backSamplesRef.current = prev + 1; return prev + 1; });
       }
     });
   };
@@ -112,6 +122,10 @@ export default function WalkAndTurn() {
     setBackGyroSum(0);
     setForwardSamples(0);
     setBackSamples(0);
+    forwardGyroSumRef.current = 0;
+    backGyroSumRef.current = 0;
+    forwardSamplesRef.current = 0;
+    backSamplesRef.current = 0;
 
     // Phase 1: Place phone in pocket (5 seconds)
     speakInstruction("Place the phone in your back pocket");
@@ -164,6 +178,37 @@ export default function WalkAndTurn() {
 
     const endTime = new Date();
     const startTime = gameStartTimeRef.current ?? new Date(endTime.getTime() - 60000);
+
+    const fwdSum = forwardGyroSumRef.current;
+    const bkSum = backGyroSumRef.current;
+    const fwdSamples = forwardSamplesRef.current;
+    const bkSamples = backSamplesRef.current;
+    const totalSamples = fwdSamples + bkSamples;
+    const totalMovement = fwdSum + bkSum;
+    const avgMovement = totalSamples > 0 ? totalMovement / totalSamples : 0;
+    const score = Math.round(Math.max(0, Math.min(100, 100 - avgMovement * 30)));
+    const metricsPayload = {
+      stabilityScore: score,
+      forwardGyroAvg: fwdSamples > 0 ? fwdSum / fwdSamples : 0,
+      backGyroAvg: bkSamples > 0 ? bkSum / bkSamples : 0,
+      totalSamples,
+    };
+    if (sessionMode === 'full_session') {
+      completeGame('walk_and_turn', metricsPayload, startTime);
+      if (isLastGame()) {
+        router.replace('/session-results');
+      } else {
+        router.replace('/session-transition');
+      }
+    } else {
+      saveGameResult(
+        'walk_and_turn',
+        EMPATICA_PARTICIPANT.fullId,
+        startTime,
+        endTime,
+        metricsPayload
+      );
+    }
     console.log('[WalkAndTurn] Game over. Fetching watch data...');
     console.log('[WalkAndTurn] Start time:', startTime.toISOString());
     console.log('[WalkAndTurn] End time:', endTime.toISOString());
@@ -554,6 +599,17 @@ export default function WalkAndTurn() {
               )}
             </View>
 
+            <ScoreTrendCard
+              gameType="walk_and_turn"
+              participantId="2872-1-1-1"
+              currentMetrics={{
+                stabilityScore,
+                forwardGyroAvg: forwardSamples > 0 ? forwardGyroSum / forwardSamples : 0,
+                backGyroAvg: backSamples > 0 ? backGyroSum / backSamples : 0,
+                totalSamples: forwardSamples + backSamples,
+              }}
+            />
+
             <TouchableOpacity
               style={styles.retryButton}
               onPress={() => setCountdown(true)}
@@ -893,3 +949,4 @@ const styles = StyleSheet.create({
     color: "#3B82F6",
   },
 });
+

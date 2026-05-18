@@ -1,6 +1,10 @@
-import { Countdown } from '@/components/Countdown';
+﻿import { Countdown } from '@/components/Countdown';
+import { ScoreTrendCard } from '@/components/ScoreTrendCard';
 import { EmpaticaSingleLegResult, fetchSingleLegResults } from '@/lib/empaticaS3';
+import { saveGameResult } from '@/lib/firestore';
+import { EMPATICA_PARTICIPANT } from '@/lib/empaticaConfig';
 import { GameTimer } from '@/components/GameTimer';
+import { useSession } from '@/lib/SessionContext';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { useRouter } from 'expo-router';
@@ -30,8 +34,10 @@ export default function SingleLegStand() {
   const [empaticaResult, setEmpaticaResult] = useState<EmpaticaSingleLegResult | null>(null);
   const [fetchingWatch, setFetchingWatch] = useState(false);
   const router = useRouter();
+  const { sessionMode, completeGame, isLastGame, savePartialSession, resetSession } = useSession();
 
   const handleBackToDashboard = () => {
+    if (sessionMode === 'full_session') { savePartialSession(); resetSession(); }
     // Clean up gyroscope if still running
     if (gyroSubscription.current) {
       gyroSubscription.current.remove();
@@ -103,6 +109,29 @@ export default function SingleLegStand() {
     
     setGameCompleted(true);
 
+    const metricsPayload = {
+      stabilityScore: Math.round(score),
+      averageGyro: { x: avgX, y: avgY, z: avgZ },
+      sampleCount,
+    };
+
+    if (sessionMode === 'full_session') {
+      completeGame('single_leg_stand', metricsPayload, gameStartTimeRef.current ?? new Date());
+      if (isLastGame()) {
+        router.replace('/session-results');
+      } else {
+        router.replace('/session-transition');
+      }
+    } else {
+      saveGameResult(
+        'single_leg_stand',
+        EMPATICA_PARTICIPANT.fullId,
+        gameStartTimeRef.current ?? new Date(),
+        new Date(),
+        metricsPayload
+      );
+    }
+
     // Fetch watch data from Empatica S3
     const endTime = new Date();
     gameEndTimeRef.current = endTime;
@@ -141,50 +170,8 @@ export default function SingleLegStand() {
             <Text style={styles.instructionTitle}>Single Leg Stand Test</Text>
             
             <Text style={styles.instructionText}>
-              Stand on one leg with your phone in your one of your hands. Hold your balance for 10 seconds while we measure your stability.
+              Stand on one leg and hold your balance for 10 seconds while we measure your stability.
             </Text>
-
-            {/* Example Section */}
-            <View style={styles.exampleBox}>
-              <Text style={styles.exampleLabel}>How it works:</Text>
-
-              <View style={styles.stepContainer}>
-                <View style={styles.step}>
-                  <View style={styles.stepNumber}>
-                    <Text style={styles.stepNumberText}>1</Text>
-                  </View>
-                  <Text style={styles.stepText}>Hold your phone in your one of your hands with the arm extended straight out</Text>
-                </View>
-
-                <View style={styles.step}>
-                  <View style={styles.stepNumber}>
-                    <Text style={styles.stepNumberText}>2</Text>
-                  </View>
-                  <Text style={styles.stepText}>Stand on one leg (choose your preferred leg)</Text>
-                </View>
-
-                <View style={styles.step}>
-                  <View style={styles.stepNumber}>
-                    <Text style={styles.stepNumberText}>3</Text>
-                  </View>
-                  <Text style={styles.stepText}>Hold your balance for 10 seconds</Text>
-                </View>
-
-                <View style={styles.step}>
-                  <View style={styles.stepNumber}>
-                    <Text style={styles.stepNumberText}>4</Text>
-                  </View>
-                  <Text style={styles.stepText}>We measure your body movement via gyroscope</Text>
-                </View>
-              </View>
-
-              <View style={styles.exampleNote}>
-                <Ionicons name="information-circle" size={20} color="#EC4899" />
-                <Text style={styles.exampleNoteText}>
-                  Less movement = better balance = higher score
-                </Text>
-              </View>
-            </View>
 
             {/* Rules */}
             <View style={styles.rulesBox}>
@@ -199,11 +186,19 @@ export default function SingleLegStand() {
               </View>
               <View style={styles.rule}>
                 <View style={styles.bulletPoint} />
-                <Text style={styles.ruleText}>Stretch out your arm with the smarthwatch</Text>
+                <Text style={styles.ruleText}>Stretch out your arm with the smartwatch</Text>
               </View>
               <View style={styles.rule}>
                 <View style={styles.bulletPoint} />
-                <Text style={styles.ruleText}> Hold your phone in the other hand and sretch it out as well.</Text>
+                <Text style={styles.ruleText}>Hold your phone in the other hand and stretch it out as well</Text>
+              </View>
+              <View style={styles.rule}>
+                <View style={styles.bulletPoint} />
+                <Text style={styles.ruleText}>Hold both arms out with palms facing up</Text>
+              </View>
+              <View style={styles.rule}>
+                <View style={styles.bulletPoint} />
+                <Text style={styles.ruleText}>Keep the phone screen facing up so you can see the timer and know when to stop</Text>
               </View>
               <View style={styles.rule}>
                 <View style={styles.bulletPoint} />
@@ -212,10 +207,6 @@ export default function SingleLegStand() {
               <View style={styles.rule}>
                 <View style={styles.bulletPoint} />
                 <Text style={styles.ruleText}>Try to minimize body movement</Text>
-              </View>
-              <View style={styles.rule}>
-                <View style={styles.bulletPoint} />
-                <Text style={styles.ruleText}>Score based on stability (0-100)</Text>
               </View>
             </View>
 
@@ -410,6 +401,16 @@ export default function SingleLegStand() {
                 </TouchableOpacity>
               )}
             </View>
+
+            <ScoreTrendCard
+              gameType="single_leg_stand"
+              participantId="2872-1-1-1"
+              currentMetrics={{
+                stabilityScore,
+                sampleCount,
+                averageGyro: { x: averageGyro.x, y: averageGyro.y, z: averageGyro.z },
+              }}
+            />
 
             <TouchableOpacity style={styles.retryButton} onPress={() => setCountdown(true)}>
               <Ionicons name="refresh" size={20} color="#FFFFFF" />

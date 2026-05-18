@@ -1,4 +1,8 @@
-import { Countdown } from "@/components/Countdown";
+﻿import { Countdown } from "@/components/Countdown";
+import { ScoreTrendCard } from "@/components/ScoreTrendCard";
+import { saveGameResult } from "@/lib/firestore";
+import { EMPATICA_PARTICIPANT } from "@/lib/empaticaConfig";
+import { useSession } from "@/lib/SessionContext";
 import StroopBrick from "@/components/StroopBricks";
 import { StroopGameGen } from "@/logic/StroopGameGen";
 import { Ionicons } from "@expo/vector-icons";
@@ -10,6 +14,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 
 export default function StroopNaming() {
   const router = useRouter();
+  const { sessionMode, completeGame, isLastGame, savePartialSession, resetSession } = useSession();
   const [countdown, setCountdown] = useState(false);
   const [color, setColor] = useState("");
   const [colorWord, setColorWord] = useState("");
@@ -20,23 +25,33 @@ export default function StroopNaming() {
   const [gameOver, setGameOver] = useState(false);
   const [perceivedDuration, setPerceivedDuration] = useState(0);
   const gameStartTimeRef = useRef<number>(0);
+  const scoreRef = useRef(0);
+  const totalAttemptsRef = useRef(0);
+  const stimulusTimeRef = useRef<number>(0);
+  const reactionTimesRef = useRef<number[]>([]);
 
   const parseGameGen = () => {
     const gameInfo = StroopGameGen();
     setColor(gameInfo.word_color);
     setColorWord(gameInfo.word);
     setGameOptions(gameInfo.options);
+    stimulusTimeRef.current = Date.now();
   };
 
   const checkIfCorrect = (option: string) => {
+    const reactionMs = Date.now() - stimulusTimeRef.current;
+    reactionTimesRef.current = [...reactionTimesRef.current, reactionMs];
     if (option.toLowerCase() === color) {
-      setScore(score + 1);
+      setScore(s => { scoreRef.current = s + 1; return s + 1; });
     }
-    setTotalAttempts(totalAttempts + 1);
+    setTotalAttempts(t => { totalAttemptsRef.current = t + 1; return t + 1; });
     parseGameGen();
   };
 
   const startGame = () => {
+    scoreRef.current = 0;
+    totalAttemptsRef.current = 0;
+    reactionTimesRef.current = [];
     setScore(0);
     setTotalAttempts(0);
     setPerceivedDuration(0);
@@ -46,18 +61,54 @@ export default function StroopNaming() {
     parseGameGen();
   };
 
-  const handleGameOver = () => {
+  const handleGameOver = (elapsedSeconds: number) => {
     setGameOver(true);
     setGameStarted(false);
+
+    const endTime = new Date();
+    const currentScore = scoreRef.current;
+    const currentAttempts = totalAttemptsRef.current;
+    const times = reactionTimesRef.current;
+    const avgReactionTimeMs = times.length > 0
+      ? Math.round(times.reduce((a, b) => a + b, 0) / times.length)
+      : 0;
+    const metricsPayload = {
+      score: currentScore,
+      totalAttempts: currentAttempts,
+      accuracy: currentAttempts > 0 ? Math.round((currentScore / currentAttempts) * 100) : 0,
+      avgReactionTimeMs,
+      perceivedDurationSeconds: elapsedSeconds,
+      timeDeltaSeconds: elapsedSeconds - 30,
+    };
+    if (sessionMode === 'full_session') {
+      completeGame('stroop_naming', metricsPayload, new Date(gameStartTimeRef.current));
+      if (isLastGame()) {
+        router.replace('/session-results');
+      } else {
+        router.replace('/session-transition');
+      }
+    } else {
+      saveGameResult(
+        'stroop_naming',
+        EMPATICA_PARTICIPANT.fullId,
+        new Date(gameStartTimeRef.current),
+        endTime,
+        metricsPayload
+      );
+    }
   };
 
   const handleStop = () => {
     const elapsed = Math.round((Date.now() - gameStartTimeRef.current) / 1000);
     setPerceivedDuration(elapsed);
-    handleGameOver();
+    handleGameOver(elapsed);
   };
 
   const handleBackToDashboard = () => {
+    if (sessionMode === 'full_session') {
+      savePartialSession();
+      resetSession();
+    }
     setGameOver(false);
     setGameStarted(false);
     setScore(0);
@@ -97,16 +148,6 @@ export default function StroopNaming() {
               the text says.
             </Text>
 
-            {/* Example */}
-            <View style={styles.exampleBox}>
-              <Text style={styles.exampleLabel}>Example:</Text>
-              <StroopBrick color="#F3F4F6" text="GREEN" textColor="red" />
-              <Text style={styles.exampleText}>
-                Correct answer: <Text style={styles.boldText}>Red</Text> (the
-                color of the text)
-              </Text>
-            </View>
-
             <TouchableOpacity style={styles.startButton} onPress={() => setCountdown(true)}>
               <Text style={styles.startButtonText}>Begin Test</Text>
               <Ionicons name="arrow-forward" size={20} color="#FFFFFF" />
@@ -117,14 +158,6 @@ export default function StroopNaming() {
         {/* PLAY SCREEN */}
         {gameStarted && !gameOver && (
           <View style={styles.playScreen}>
-            {/* Score + time-perception prompt */}
-            <View style={styles.statsContainer}>
-              <View style={styles.statCard}>
-                <Ionicons name="trophy-outline" size={20} color="#10B981" />
-                <Text style={styles.statText}>{score}</Text>
-              </View>
-            </View>
-
             <Text style={styles.timePrompt}>
               Tap STOP when you feel 30 seconds have passed
             </Text>
@@ -205,6 +238,18 @@ export default function StroopNaming() {
             </View>
 
             {/* Action Buttons */}
+            <ScoreTrendCard
+              gameType="stroop_naming"
+              participantId="2872-1-1-1"
+              currentMetrics={{
+                accuracy: totalAttempts > 0 ? Math.round((score / totalAttempts) * 100) : 0,
+                avgReactionTimeMs: reactionTimesRef.current.length > 0
+                  ? Math.round(reactionTimesRef.current.reduce((a, b) => a + b, 0) / reactionTimesRef.current.length)
+                  : 0,
+                timeDeltaSeconds: perceivedDuration - 30,
+              }}
+            />
+
             <TouchableOpacity style={styles.retryButton} onPress={() => setCountdown(true)}>
               <Ionicons name="refresh" size={20} color="#FFFFFF" />
               <Text style={styles.retryButtonText}>Try Again</Text>
@@ -498,3 +543,4 @@ const styles = StyleSheet.create({
     color: "#FFFFFF",
   },
 });
+

@@ -1,5 +1,9 @@
-import { Countdown } from "@/components/Countdown";
+﻿import { Countdown } from "@/components/Countdown";
 import { GameTimer } from "@/components/GameTimer";
+import { ScoreTrendCard } from "@/components/ScoreTrendCard";
+import { saveGameResult } from "@/lib/firestore";
+import { EMPATICA_PARTICIPANT } from "@/lib/empaticaConfig";
+import { useSession } from "@/lib/SessionContext";
 import { getRandomSentence } from "@/logic/Sentences";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
@@ -18,7 +22,9 @@ import { SafeAreaView } from "react-native-safe-area-context";
 
 export default function TypingChallenge() {
   const router = useRouter();
+  const { sessionMode, completeGame, isLastGame, savePartialSession, resetSession } = useSession();
   const inputRef = useRef<TextInput>(null);
+  const gameStartTimeRef = useRef<Date | null>(null);
   const [countdown, setCountdown] = useState(false);
 
   const [currentSentence, setCurrentSentence] = useState("");
@@ -30,6 +36,14 @@ export default function TypingChallenge() {
   const [totalKeystrokes, setTotalKeystrokes] = useState(0);
   const [backspaceCount, setBackspaceCount] = useState(0);
   const [errorKeystrokes, setErrorKeystrokes] = useState(0);
+  // Refs to read latest values without nested setState
+  const correctSentencesRef = useRef(0);
+  const totalSentencesRef = useRef(0);
+  const totalCharactersRef = useRef(0);
+  const correctCharactersRef = useRef(0);
+  const totalKeystrokesRef = useRef(0);
+  const backspaceCountRef = useRef(0);
+  const errorKeystrokesRef = useRef(0);
   const [gameStarted, setGameStarted] = useState(false);
   const [gameOver, setGameOver] = useState(false);
 
@@ -63,15 +77,20 @@ export default function TypingChallenge() {
     const correctChars = calculateAccuracy(userInput, currentSentence);
 
     if (isExactMatch) {
-      setCorrectSentences(correctSentences + 1);
+      correctSentencesRef.current += 1;
+      setCorrectSentences(correctSentencesRef.current);
     } else {
       const errorsInSentence = userInput.length - correctChars;
-      setErrorKeystrokes(errorKeystrokes + errorsInSentence);
+      errorKeystrokesRef.current += errorsInSentence;
+      setErrorKeystrokes(errorKeystrokesRef.current);
     }
 
-    setTotalSentences(totalSentences + 1);
-    setCorrectCharacters(correctCharacters + correctChars);
-    setTotalCharacters(totalCharacters + currentSentence.length);
+    totalSentencesRef.current += 1;
+    setTotalSentences(totalSentencesRef.current);
+    correctCharactersRef.current += correctChars;
+    setCorrectCharacters(correctCharactersRef.current);
+    totalCharactersRef.current += currentSentence.length;
+    setTotalCharacters(totalCharactersRef.current);
 
     // Show feedback briefly, then move to next sentence
     setTimeout(() => {
@@ -80,15 +99,16 @@ export default function TypingChallenge() {
   };
 
   const startGame = () => {
-    setCorrectSentences(0);
-    setTotalSentences(0);
-    setTotalCharacters(0);
-    setCorrectCharacters(0);
-    setTotalKeystrokes(0);
-    setBackspaceCount(0);
-    setErrorKeystrokes(0);
+    setCorrectSentences(0); correctSentencesRef.current = 0;
+    setTotalSentences(0); totalSentencesRef.current = 0;
+    setTotalCharacters(0); totalCharactersRef.current = 0;
+    setCorrectCharacters(0); correctCharactersRef.current = 0;
+    setTotalKeystrokes(0); totalKeystrokesRef.current = 0;
+    setBackspaceCount(0); backspaceCountRef.current = 0;
+    setErrorKeystrokes(0); errorKeystrokesRef.current = 0;
     setGameOver(false);
     setGameStarted(true);
+    gameStartTimeRef.current = new Date();
     generateNewSentence();
   };
 
@@ -96,9 +116,37 @@ export default function TypingChallenge() {
     setGameOver(true);
     setGameStarted(false);
     Keyboard.dismiss();
+
+    const endTime = new Date();
+    const chars = correctCharactersRef.current;
+    const total = totalCharactersRef.current;
+    const keystrokes = totalKeystrokesRef.current;
+    const metricsPayload = {
+      wpm: Math.round((chars / 5) / (60 / 60)),
+      accuracy: total > 0 ? Math.round((chars / total) * 100) : 0,
+      efficiency: keystrokes > 0 ? Math.round((chars / keystrokes) * 100) : 100,
+      correctSentences: correctSentencesRef.current,
+      totalSentences: totalSentencesRef.current,
+      correctCharacters: chars,
+      totalCharacters: total,
+      totalKeystrokes: keystrokes,
+      backspaceCount: backspaceCountRef.current,
+      errorKeystrokes: errorKeystrokesRef.current,
+    };
+    if (sessionMode === 'full_session') {
+      completeGame('typing_game', metricsPayload, gameStartTimeRef.current ?? new Date());
+      if (isLastGame()) {
+        router.replace('/session-results');
+      } else {
+        router.replace('/session-transition');
+      }
+    } else {
+      saveGameResult('typing_game', EMPATICA_PARTICIPANT.fullId, gameStartTimeRef.current ?? new Date(), endTime, metricsPayload);
+    }
   };
 
   const handleBackToDashboard = () => {
+    if (sessionMode === 'full_session') { savePartialSession(); resetSession(); }
     setCorrectSentences(0);
     setTotalSentences(0);
     setTotalCharacters(0);
@@ -190,14 +238,10 @@ export default function TypingChallenge() {
               each sentence.
             </Text>
 
-            {/* Example */}
-            <View style={styles.exampleBox}>
-              <Text style={styles.exampleLabel}>Example:</Text>
-              <Text style={styles.exampleSentence}>
-                The quick brown fox jumps over the lazy dog.
-              </Text>
-              <Text style={styles.exampleText}>
-                Type the sentence exactly as shown, including punctuation
+            <View style={styles.autocorrectWarning}>
+              <Ionicons name="warning-outline" size={18} color="#92400E" />
+              <Text style={styles.autocorrectWarningText}>
+                Please disable autocorrect and autocomplete on your keyboard before starting. On most Android keyboards: tap the Settings icon on the keyboard → Text correction → turn off Auto-correction and Next-word suggestions.
               </Text>
             </View>
 
@@ -261,6 +305,8 @@ export default function TypingChallenge() {
               autoCapitalize="none"
               autoCorrect={false}
               autoComplete="off"
+              spellCheck={false}
+              importantForAutofill="no"
               multiline
             />
 
@@ -373,6 +419,18 @@ export default function TypingChallenge() {
             </View>
 
             {/* Action Buttons */}
+            <ScoreTrendCard
+              gameType="typing_game"
+              participantId="2872-1-1-1"
+              currentMetrics={{
+                wpm: Math.round(correctCharacters / 5),
+                accuracy: totalCharacters > 0 ? Math.round((correctCharacters / totalCharacters) * 100) : 0,
+                efficiency: totalKeystrokes > 0 ? Math.round((correctCharacters / totalKeystrokes) * 100) : 100,
+                backspaceCount,
+                errorKeystrokes,
+              }}
+            />
+
             <TouchableOpacity style={styles.retryButton} onPress={() => setCountdown(true)}>
               <Ionicons name="refresh" size={20} color="#FFFFFF" />
               <Text style={styles.retryButtonText}>Try Again</Text>
@@ -725,4 +783,22 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     color: "#4F46E5",
   },
+  autocorrectWarning: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    backgroundColor: "#FEF3C7",
+    borderRadius: 10,
+    padding: 14,
+    marginBottom: 20,
+    gap: 10,
+    borderWidth: 1,
+    borderColor: "#FCD34D",
+  },
+  autocorrectWarningText: {
+    flex: 1,
+    fontSize: 13,
+    color: "#92400E",
+    lineHeight: 19,
+  },
 });
+

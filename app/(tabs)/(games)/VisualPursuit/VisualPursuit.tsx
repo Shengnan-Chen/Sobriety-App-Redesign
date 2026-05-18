@@ -1,3 +1,7 @@
+import { saveGameResult } from "@/lib/firestore";
+import { EMPATICA_PARTICIPANT } from "@/lib/empaticaConfig";
+import { uploadVideo } from "@/lib/firebaseStorage";
+import { useSession } from "@/lib/SessionContext";
 import { Ionicons } from "@expo/vector-icons";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import { useRouter } from "expo-router";
@@ -16,95 +20,132 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 
 const { width } = Dimensions.get("window");
-const BALL_SIZE = 40;
-const CANVAS_WIDTH = width - 40;
-const TEST_DURATION = 15;
-const PAUSE_AT_END = 2500;
+const BALL_SIZE = 36;
+const BALL_SPEED = 3;
 const API_BASE = "https://nonpreventable-uncoagulating-vergie.ngrok-free.dev";
+
+// Eye-shaped oval — sized to be inclusive for all eye sizes
+const EYE_OVAL_W = 150;
+const EYE_OVAL_H = 90;
+
+type RoundKey = "vertical_left" | "vertical_right" | "horizontal_left" | "horizontal_right";
+type BallStage = "to-end" | "to-start";
+
+const ROUND_ORDER: RoundKey[] = [
+  "vertical_left",
+  "vertical_right",
+  "horizontal_left",
+  "horizontal_right",
+];
+
+const ROUND_LABELS: Record<RoundKey, string> = {
+  vertical_left:    "Round 1 — Vertical, Left Eye",
+  vertical_right:   "Round 2 — Vertical, Right Eye",
+  horizontal_left:  "Round 3 — Horizontal, Left Eye",
+  horizontal_right: "Round 4 — Horizontal, Right Eye",
+};
+
+const ROUND_INSTRUCTION: Record<RoundKey, string> = {
+  vertical_left:    "Position your LEFT eye inside the oval",
+  vertical_right:   "Position your RIGHT eye inside the oval",
+  horizontal_left:  "Position your LEFT eye inside the oval",
+  horizontal_right: "Position your RIGHT eye inside the oval",
+};
+
+const ROUND_DIRECTION: Record<RoundKey, string> = {
+  vertical_left:    "Ball: CENTER → UP → CENTER",
+  vertical_right:   "Ball: CENTER → UP → CENTER",
+  horizontal_left:  "Ball: TOP → BOTTOM → TOP",
+  horizontal_right: "Ball: TOP → BOTTOM → TOP",
+};
 
 type TestPhase =
   | "intro"
   | "pupil-test"
-  | "align-portrait"
-  | "test-portrait"
-  | "align-landscape"
-  | "test-landscape"
+  | "align-vertical-left"
+  | "test-vertical-left"
+  | "align-vertical-right"
+  | "test-vertical-right"
+  | "align-horizontal-left"
+  | "test-horizontal-left"
+  | "align-horizontal-right"
+  | "test-horizontal-right"
   | "analyzing"
   | "complete";
 
-interface VideoMetrics {
-  xNystagmus: boolean;
-  yNystagmus: boolean;
-  avgPupilDiameter: number;
+const ALIGN_PHASES = new Set<TestPhase>([
+  "align-vertical-left",
+  "align-vertical-right",
+  "align-horizontal-left",
+  "align-horizontal-right",
+]);
+
+const TEST_PHASES = new Set<TestPhase>([
+  "test-vertical-left",
+  "test-vertical-right",
+  "test-horizontal-left",
+  "test-horizontal-right",
+]);
+
+function isVerticalRound(round: RoundKey) {
+  return round.startsWith("vertical");
 }
 
-interface Metrics {
-  portrait: VideoMetrics | null;
-  landscape: VideoMetrics | null;
-  apiSuccess: boolean;
+function getRoundAlignPhase(round: RoundKey): TestPhase {
+  return `align-${round.replace("_", "-")}` as TestPhase;
+}
+
+function getRoundTestPhase(round: RoundKey): TestPhase {
+  return `test-${round.replace("_", "-")}` as TestPhase;
+}
+
+function getRoundFromPhase(p: TestPhase): RoundKey | null {
+  for (const round of ROUND_ORDER) {
+    if (p === getRoundAlignPhase(round) || p === getRoundTestPhase(round)) return round;
+  }
+  return null;
 }
 
 // ─── component ───────────────────────────────────────────────────────────────
 
 export default function VisualPursuit() {
   const router = useRouter();
+  const { sessionMode, completeGame, updateGameResult, addPendingJob, isLastGame } = useSession();
   const [permission, requestPermission] = useCameraPermissions();
   const [phase, setPhase] = useState<TestPhase>("intro");
-  const [ballPosition, setBallPosition] = useState({
-    x: CANVAS_WIDTH / 2,
-    y: 50,
-  });
-  const [metrics, setMetrics] = useState<Metrics | null>(null);
-  const cameraMode = "video";
+  const [ballPosition, setBallPosition] = useState({ x: 0, y: 0 });
+  const [roundResults, setRoundResults] = useState<{ videoUrl: string | null; apiSuccess: boolean } | null>(null);
 
   const cameraRef = useRef<CameraView>(null);
-  const ballYRef = useRef(50);
-  const movingDownRef = useRef(true);
-  const isPausedRef = useRef(false);
-  const canvasHeightRef = useRef(400);
+  const gameStartTimeRef = useRef<Date | null>(null);
+  const canvasHeightRef = useRef(420);
+  const canvasWidthRef = useRef(width - 40);
   const animationRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const pauseTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const phaseTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const isRunningRef = useRef(false);
-
-  const recordingPromiseRef = useRef<
-    Promise<{ uri: string } | undefined> | null
-  >(null);
   const isRecordingRef = useRef(false);
+  const recordingPromiseRef = useRef<Promise<{ uri: string } | undefined> | null>(null);
   const cameraReadyRef = useRef(false);
   const pendingRecordRef = useRef(false);
-  const calibCountRef = useRef(0);
-  const calibPollRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const calibStartRef = useRef(0);
-  const portraitUriRef = useRef<string | null>(null);
-  const landscapeUriRef = useRef<string | null>(null);
+  const isRunningRef = useRef(false);
+  const ballXRef = useRef(0);
+  const ballYRef = useRef(0);
+  const ballStageRef = useRef<BallStage>("to-end");
+  // Single video URI for the entire 4-round test (recorded continuously,
+  // no stop/start between rounds — avoids Android camera cycle failures).
+  const videoUriRef = useRef<string | null>(null);
+  const roundStartTimesRef = useRef<Record<RoundKey, Date | null>>({
+    vertical_left: null,
+    vertical_right: null,
+    horizontal_left: null,
+    horizontal_right: null,
+  });
 
-  // brightness animation for pupil test
   const brightnessAnim = useRef(new Animated.Value(0)).current;
-
-  const proceedFromAlignRef = useRef<(() => void) | null>(null);
 
   useEffect(() => () => cleanup(), []);
 
-  const stopCalibPolling = () => {
-    calibPollRef.current && clearTimeout(calibPollRef.current);
-    calibPollRef.current = null;
-  };
-
-  const startAlignThenProceed = (onReady: () => void) => {
-    stopCalibPolling();
-    pendingRecordRef.current = true;
-    calibPollRef.current = setTimeout(onReady, 3000);
-  };
-
   const cleanup = () => {
     animationRef.current && clearInterval(animationRef.current);
-    pauseTimeoutRef.current && clearTimeout(pauseTimeoutRef.current);
-    phaseTimeoutRef.current && clearTimeout(phaseTimeoutRef.current);
     animationRef.current = null;
-    pauseTimeoutRef.current = null;
-    phaseTimeoutRef.current = null;
-    stopCalibPolling();
     if (isRecordingRef.current) {
       try { cameraRef.current?.stopRecording(); } catch {}
       isRecordingRef.current = false;
@@ -114,228 +155,246 @@ export default function VisualPursuit() {
 
   const stopAnimation = () => {
     animationRef.current && clearInterval(animationRef.current);
-    pauseTimeoutRef.current && clearTimeout(pauseTimeoutRef.current);
     animationRef.current = null;
-    pauseTimeoutRef.current = null;
-  };
-
-  const startBallAnimation = () => {
-    animationRef.current = setInterval(() => {
-      if (isPausedRef.current) return;
-      const bottom = canvasHeightRef.current - BALL_SIZE;
-      let newY = ballYRef.current;
-
-      if (movingDownRef.current) {
-        newY = Math.min(ballYRef.current + 3, bottom);
-        if (newY >= bottom) {
-          movingDownRef.current = false;
-          isPausedRef.current = true;
-          pauseTimeoutRef.current = setTimeout(() => {
-            isPausedRef.current = false;
-          }, PAUSE_AT_END);
-        }
-      } else {
-        newY = Math.max(ballYRef.current - 3, 0);
-        if (newY <= 0) {
-          movingDownRef.current = true;
-          isPausedRef.current = true;
-          pauseTimeoutRef.current = setTimeout(() => {
-            isPausedRef.current = false;
-          }, PAUSE_AT_END);
-        }
-      }
-
-      ballYRef.current = newY;
-      setBallPosition({ x: CANVAS_WIDTH / 2, y: newY });
-    }, 30);
   };
 
   const startRecording = () => {
-    console.log("[VP] startRecording called — cameraRef:", !!cameraRef.current, "cameraReady:", cameraReadyRef.current, "isRecording:", isRecordingRef.current);
     if (!cameraRef.current || !cameraReadyRef.current || isRecordingRef.current) return;
     isRecordingRef.current = true;
-    console.log("[VP] startRecording → calling recordAsync");
-    recordingPromiseRef.current = cameraRef.current.recordAsync({
-      maxDuration: 20,
-    });
+    recordingPromiseRef.current = cameraRef.current.recordAsync({ maxDuration: 300 });
     recordingPromiseRef.current.then(
-      (r) => console.log("[VP] recordAsync resolved:", r?.uri ?? "null"),
-      (e) => console.log("[VP] recordAsync rejected:", e)
+      r => console.log("[VP] recordAsync resolved:", r?.uri ?? "null"),
+      e => console.log("[VP] recordAsync rejected:", e),
     );
   };
 
   const stopRecording = async (): Promise<string | null> => {
-    console.log("[VP] stopRecording called — isRecording:", isRecordingRef.current);
     if (!isRecordingRef.current) return null;
     isRecordingRef.current = false;
     try {
-      console.log("[VP] calling camera.stopRecording()");
       cameraRef.current?.stopRecording();
       const result = await recordingPromiseRef.current;
       recordingPromiseRef.current = null;
-      console.log("[VP] stopRecording uri:", result?.uri ?? "null");
       return result?.uri ?? null;
     } catch (e) {
-      console.log("[VP] stopRecording error:", e);
       recordingPromiseRef.current = null;
       return null;
     }
   };
 
-  const analyzeVideo = async (uri: string): Promise<{
-    xNystagmus: boolean;
-    yNystagmus: boolean;
-    avgPupilDiameter: number;
-  } | null> => {
+  const analyzeVideo = async (uri: string): Promise<any> => {
     try {
-      console.log("[VP] analyzeVideo start, uri:", uri);
       const formData = new FormData();
       formData.append("video", { uri, type: "video/mp4", name: "recording.mp4" } as any);
-
       const res = await fetch(`${API_BASE}/predict/video?sample_rate=4&overlay=0`, {
-        method: "POST", body: formData,
+        method: "POST",
+        body: formData,
       });
-      console.log("[VP] POST status:", res.status);
-      if (!res.ok) { console.log("[VP] POST failed:", await res.text()); return null; }
-
-      const job = await res.json();
-      console.log("[VP] job response:", JSON.stringify(job));
-
-      return {
-        xNystagmus: job.x_nystagmus_present ?? false,
-        yNystagmus: job.y_nystagmus_present ?? false,
-        avgPupilDiameter: job.avg_pupil_semi_diameter_major_px ?? 0,
-      };
+      if (!res.ok) {
+        console.log("[VP] API error:", res.status);
+        return null;
+      }
+      return await res.json();
     } catch (e) {
       console.log("[VP] analyzeVideo error:", e);
       return null;
     }
   };
 
-  const resetBall = () => {
-    ballYRef.current = 50;
-    setBallPosition({ x: CANVAS_WIDTH / 2, y: 50 });
-    movingDownRef.current = true;
-    isPausedRef.current = false;
+  const startBallAnimation = (round: RoundKey, onComplete: () => void) => {
+    const vertical = isVerticalRound(round);
+    const centerX = canvasWidthRef.current / 2 - BALL_SIZE / 2;
+    ballStageRef.current = "to-end";
+
+    if (vertical) {
+      // Starts at center Y, goes to top, returns to center
+      const centerY = canvasHeightRef.current / 2 - BALL_SIZE / 2;
+      ballXRef.current = centerX;
+      ballYRef.current = centerY;
+      setBallPosition({ x: centerX, y: centerY });
+    } else {
+      // Horizontal rounds: ball starts at top (y=0), goes to bottom, returns to top
+      ballXRef.current = centerX;
+      ballYRef.current = 0;
+      setBallPosition({ x: centerX, y: 0 });
+    }
+
+    animationRef.current = setInterval(() => {
+      const cx = canvasWidthRef.current / 2 - BALL_SIZE / 2;
+
+      if (vertical) {
+        const centerY = canvasHeightRef.current / 2 - BALL_SIZE / 2;
+
+        if (ballStageRef.current === "to-end") {
+          // Moving up to top
+          ballYRef.current = Math.max(0, ballYRef.current - BALL_SPEED);
+          if (ballYRef.current <= 0) ballStageRef.current = "to-start";
+        } else {
+          // Returning to center
+          ballYRef.current = Math.min(centerY, ballYRef.current + BALL_SPEED);
+          if (ballYRef.current >= centerY) {
+            stopAnimation();
+            onComplete();
+            return;
+          }
+        }
+        setBallPosition({ x: cx, y: ballYRef.current });
+      } else {
+        // Horizontal rounds: full vertical range, top → bottom → top
+        const maxY = canvasHeightRef.current - BALL_SIZE;
+
+        if (ballStageRef.current === "to-end") {
+          // Moving down to bottom
+          ballYRef.current = Math.min(maxY, ballYRef.current + BALL_SPEED);
+          if (ballYRef.current >= maxY) ballStageRef.current = "to-start";
+        } else {
+          // Returning to top
+          ballYRef.current = Math.max(0, ballYRef.current - BALL_SPEED);
+          if (ballYRef.current <= 0) {
+            stopAnimation();
+            onComplete();
+            return;
+          }
+        }
+        setBallPosition({ x: cx, y: ballYRef.current });
+      }
+    }, 30);
   };
 
-  const runLandscapeTest = () => {
-    setPhase("test-landscape");
-    resetBall();
-    // camera is switching to video mode; onCameraReady will call startRecording via pendingRecordRef
-    if (cameraReadyRef.current) startRecording();
-    startBallAnimation();
-
-    phaseTimeoutRef.current = setTimeout(async () => {
-      stopAnimation();
-      landscapeUriRef.current = await stopRecording();
-      setPhase("analyzing");
-
-      const [m1, m2] = await Promise.all([
-        portraitUriRef.current ? analyzeVideo(portraitUriRef.current) : null,
-        landscapeUriRef.current ? analyzeVideo(landscapeUriRef.current) : null,
-      ]);
-
-      setMetrics({
-        portrait: m1,
-        landscape: m2,
-        apiSuccess: m1 !== null || m2 !== null,
-      });
-      setPhase("complete");
-      isRunningRef.current = false;
-    }, TEST_DURATION * 1000);
+  const onRoundComplete = async (roundIndex: number) => {
+    stopAnimation();
+    const nextIndex = roundIndex + 1;
+    if (nextIndex < ROUND_ORDER.length) {
+      // More rounds remain — keep recording, just advance to next alignment screen
+      setPhase(getRoundAlignPhase(ROUND_ORDER[nextIndex]));
+    } else {
+      // All 4 rounds done — stop the single continuous recording now
+      const uri = await stopRecording();
+      videoUriRef.current = uri;
+      console.log('[VP] All rounds complete, video uri:', uri ?? 'null');
+      analyzeAll();
+    }
   };
 
-  const runPortraitTest = () => {
-    setPhase("test-portrait");
-    resetBall();
-    // camera is switching to video mode; onCameraReady will call startRecording via pendingRecordRef
-    if (cameraReadyRef.current) startRecording();
-    startBallAnimation();
-
-    phaseTimeoutRef.current = setTimeout(async () => {
-      stopAnimation();
-      portraitUriRef.current = await stopRecording();
-      setPhase("align-landscape");
-      startAlignThenProceed(runLandscapeTest);
-    }, TEST_DURATION * 1000);
+  const onOKPressed = () => {
+    const round = getRoundFromPhase(phase);
+    if (!round) return;
+    const roundIndex = ROUND_ORDER.indexOf(round);
+    roundStartTimesRef.current[round] = new Date();
+    // Recording is already running continuously — just advance phase and start ball.
+    setPhase(getRoundTestPhase(round));
+    startBallAnimation(round, () => onRoundComplete(roundIndex));
   };
 
-  const startAfterCalibration = () => {
-    setPhase("pupil-test");
-    brightnessAnim.setValue(0);
+  const analyzeAll = async () => {
+    isRunningRef.current = false;
+    const uri = videoUriRef.current;
+    const capturedGameStart = gameStartTimeRef.current ?? new Date();
+    const roundTimes = Object.fromEntries(
+      Object.entries(roundStartTimesRef.current).map(([k, v]) => [k, v?.toISOString() ?? null]),
+    );
 
-    Animated.timing(brightnessAnim, {
-      toValue: 1,
-      duration: 8000,
-      useNativeDriver: false,
-    }).start(() => {
-      resetBall();
-      setPhase("align-portrait");
-      startAlignThenProceed(runPortraitTest);
-    });
+    if (sessionMode === "full_session") {
+      completeGame("visual_pursuit", { apiSuccess: null }, capturedGameStart);
+      if (isLastGame()) {
+        router.replace("/session-results");
+      } else {
+        router.replace("/session-transition");
+      }
+      // Upload and analyze in the background
+      const capturedUri = uri;
+      const job = (async (): Promise<void> => {
+        if (!capturedUri) return;
+        const [apiResult, videoUrl] = await Promise.all([
+          analyzeVideo(capturedUri),
+          uploadVideo(capturedUri, EMPATICA_PARTICIPANT.fullId, "visual_pursuit", "full_test").catch(() => null),
+        ]);
+        updateGameResult("visual_pursuit", {
+          videoUrl, rawApiResponse: apiResult,
+          apiSuccess: apiResult !== null, roundTimes,
+        });
+      })();
+      addPendingJob(job);
+      return;
+    }
+
+    // Individual mode: show analyzing screen, await upload + API, save result
+    setPhase("analyzing");
+    const videoUrl = uri
+      ? await uploadVideo(uri, EMPATICA_PARTICIPANT.fullId, "visual_pursuit", "full_test").catch(() => null)
+      : null;
+    const apiResult = uri ? await analyzeVideo(uri) : null;
+
+    saveGameResult(
+      "visual_pursuit",
+      EMPATICA_PARTICIPANT.fullId,
+      capturedGameStart,
+      new Date(),
+      { videoUrl, rawApiResponse: apiResult, apiSuccess: apiResult !== null, roundTimes },
+      "individual",
+    );
+    setRoundResults({ videoUrl, apiSuccess: apiResult !== null });
+    setPhase("complete");
   };
 
   const gameStartState = async () => {
     if (isRunningRef.current) return;
     isRunningRef.current = true;
-
     cleanup();
-    setMetrics(null);
     brightnessAnim.setValue(0);
-    portraitUriRef.current = null;
-    landscapeUriRef.current = null;
+    videoUriRef.current = null;
+    roundStartTimesRef.current = { vertical_left: null, vertical_right: null, horizontal_left: null, horizontal_right: null };
     cameraReadyRef.current = false;
     pendingRecordRef.current = false;
-    calibCountRef.current = 0;
+    gameStartTimeRef.current = new Date();
+    setRoundResults(null);
 
     if (!permission?.granted) {
       const result = await requestPermission();
-      if (!result.granted) {
-        isRunningRef.current = false;
-        return;
-      }
+      if (!result.granted) { isRunningRef.current = false; return; }
     }
 
-    startAfterCalibration();
+    setPhase("pupil-test");
+    Animated.timing(brightnessAnim, {
+      toValue: 1,
+      duration: 8000,
+      useNativeDriver: false,
+    }).start(() => {
+      // Start the single continuous recording now — it runs through all 4 rounds
+      // without stopping, eliminating per-round camera cycle failures on Android.
+      if (cameraReadyRef.current) {
+        startRecording();
+      } else {
+        pendingRecordRef.current = true;
+      }
+      setPhase(getRoundAlignPhase(ROUND_ORDER[0]));
+    });
   };
 
-  const handleBackToDashboard = () => {
+  const handleBack = () => {
     cleanup();
     isRunningRef.current = false;
-    proceedFromAlignRef.current = null;
-    setPhase("intro");
-    setMetrics(null);
     brightnessAnim.setValue(0);
+    setPhase("intro");
+    setRoundResults(null);
     router.replace("/(tabs)/dashboard");
   };
 
-
-  const cameraActive = [
-    "pupil-test",
-    "align-portrait",
-    "test-portrait",
-    "align-landscape",
-    "test-landscape",
-  ].includes(phase);
-  const isCameraFull =
-    phase === "align-portrait" ||
-    phase === "align-landscape";
-  const isLandscapePhase =
-    phase === "align-landscape" || phase === "test-landscape";
+  const cameraActive = !["intro", "analyzing", "complete"].includes(phase);
+  const showCameraFull = phase === "pupil-test" || ALIGN_PHASES.has(phase);
+  const currentRound = getRoundFromPhase(phase);
+  const isHorizontalAlign =
+    phase === "align-horizontal-left" || phase === "align-horizontal-right";
 
   return (
     <SafeAreaView style={styles.container} edges={["top"]}>
       <StatusBar style="dark" />
 
-      {/* ── INTRO ──────────────────────────────────────────────────────── */}
+      {/* ── INTRO ──────────────────────────────────────────────────────────── */}
       {phase === "intro" && (
         <>
           <View style={styles.header}>
-            <TouchableOpacity
-              onPress={handleBackToDashboard}
-              style={styles.backButton}
-            >
+            <TouchableOpacity onPress={handleBack} style={styles.backButton}>
               <Ionicons name="chevron-back" size={24} color="#1F2937" />
             </TouchableOpacity>
             <Text style={styles.headerTitle}>Visual Pursuit</Text>
@@ -360,19 +419,18 @@ export default function VisualPursuit() {
             </View>
             <Text style={styles.instructionTitle}>Visual Pursuit Test</Text>
             <Text style={styles.instructionText}>
-              Follow the moving ball with your eyes only. Do not move your
-              head! The camera records your eye movements for AI analysis.
+              Follow the moving ball with your eyes only. Do not move your head!
+              The camera records your eye movements for AI analysis.
             </Text>
 
             <View style={styles.exampleBox}>
-              <Text style={styles.exampleLabel}>How it works:</Text>
+              <Text style={styles.exampleLabel}>4 Rounds:</Text>
               <View style={styles.stepContainer}>
                 {[
-                  "Hold phone upright (portrait) — position your face",
-                  "Follow ball up-to-down (15 seconds)",
-                  "Rotate phone sideways (landscape) — position your face",
-                  "Follow ball up-to-down again (15 seconds)",
-                  "AI analyzes your eye tracking data",
+                  "Align LEFT eye (center) — ball moves center → up → center",
+                  "Align RIGHT eye (center) — ball moves center → up → center",
+                  "Align LEFT eye (top, near camera) — ball moves top → bottom → top",
+                  "Align RIGHT eye (top, near camera) — ball moves top → bottom → top",
                 ].map((text, i) => (
                   <View key={i} style={styles.step}>
                     <View style={styles.stepNumber}>
@@ -383,24 +441,20 @@ export default function VisualPursuit() {
                 ))}
               </View>
               <View style={styles.exampleNote}>
-                <Ionicons
-                  name="information-circle"
-                  size={20}
-                  color="#6366F1"
-                />
+                <Ionicons name="information-circle" size={20} color="#6366F1" />
                 <Text style={styles.exampleNoteText}>
-                  Ball pauses for 2 seconds at each end
+                  Each round ends automatically when the ball returns to start
                 </Text>
               </View>
             </View>
 
             <View style={styles.rulesBox}>
-              <Text style={styles.rulesTitle}>Test Rules:</Text>
+              <Text style={styles.rulesTitle}>Rules:</Text>
               {[
-                "Total duration: ~34 seconds + AI analysis",
-                "Keep head completely still",
+                "Keep your head completely still",
                 "Only move your eyes to follow the ball",
-                "Front camera records for analysis",
+                "Tap OK when your eye is aligned to start each round",
+                "Front camera records for AI analysis",
               ].map((rule, i) => (
                 <View key={i} style={styles.rule}>
                   <View style={styles.bulletPoint} />
@@ -409,10 +463,7 @@ export default function VisualPursuit() {
               ))}
             </View>
 
-            <TouchableOpacity
-              style={styles.startButton}
-              onPress={gameStartState}
-            >
+            <TouchableOpacity style={styles.startButton} onPress={gameStartState}>
               <Text style={styles.startButtonText}>Begin Test</Text>
               <Ionicons name="arrow-forward" size={20} color="#FFFFFF" />
             </TouchableOpacity>
@@ -420,95 +471,41 @@ export default function VisualPursuit() {
         </>
       )}
 
-{/* ── PUPIL BRIGHTNESS TEST ───────────────────────────────────────── */}
-      {phase === "pupil-test" && (
-        <Animated.View
-          style={[
-            StyleSheet.absoluteFill,
-            styles.pupilScreen,
-            {
-              backgroundColor: brightnessAnim.interpolate({
-                inputRange: [0, 1],
-                outputRange: ["#050505", "#FFFFFF"],
-              }),
-            },
-          ]}
-        >
-          <Animated.Text
-            style={[
-              styles.pupilText,
-              {
-                color: brightnessAnim.interpolate({
-                  inputRange: [0, 0.4, 1],
-                  outputRange: ["#FFFFFF", "#FFFFFF", "#1F2937"],
-                }),
-              },
-            ]}
-          >
-            Keep your eyes open and look at the screen
-          </Animated.Text>
-          <View style={styles.cameraIndicator}>
-            <View style={styles.recordingDot} />
-            <Text style={styles.recordingText}>Recording</Text>
-          </View>
-        </Animated.View>
-      )}
-
-      {/* ── CAMERA (align + test phases) ───────────────────────────────── */}
+      {/* ── CAMERA AREA (pupil-test, align-*, test-*) ──────────────────────── */}
       {cameraActive && (
         <>
-          {/* Game canvas — visible during test phases */}
-          {!isCameraFull && (
+          {/* Game canvas — shown during test phases */}
+          {TEST_PHASES.has(phase) && (
             <View style={{ flex: 1 }}>
               <View style={styles.header}>
-                <TouchableOpacity
-                  onPress={handleBackToDashboard}
-                  style={styles.backButton}
-                >
+                <TouchableOpacity onPress={handleBack} style={styles.backButton}>
                   <Ionicons name="chevron-back" size={24} color="#1F2937" />
                 </TouchableOpacity>
-                <Text style={styles.headerTitle}>Visual Pursuit</Text>
+                <Text style={styles.headerTitle} numberOfLines={1}>
+                  {currentRound ? ROUND_LABELS[currentRound] : "Visual Pursuit"}
+                </Text>
                 <View style={styles.placeholder} />
               </View>
 
               <View style={styles.gameScreen}>
-                <View style={styles.statsContainer}>
-                  <View style={styles.directionCard}>
-                    <Ionicons
-                      name="swap-vertical-outline"
-                      size={20}
-                      color="#6366F1"
-                    />
-                    <Text style={styles.directionText}>
-                      {phase === "test-portrait"
-                        ? "Portrait Mode (Up-Down)"
-                        : "Landscape Mode (Up-Down)"}
-                    </Text>
-                  </View>
-                </View>
-
                 <View style={styles.instructionCard}>
-                  <Ionicons name="eye-outline" size={24} color="#6366F1" />
+                  <Ionicons name="eye-outline" size={20} color="#6366F1" />
                   <Text style={styles.gameInstruction}>
-                    Follow the ball with your eyes only. Keep your head still!
+                    Follow the ball — eyes only, head still!
                   </Text>
                 </View>
-
                 <View
                   style={styles.canvas}
-                  onLayout={(e) => {
+                  onLayout={e => {
                     canvasHeightRef.current = e.nativeEvent.layout.height;
+                    canvasWidthRef.current = e.nativeEvent.layout.width;
                   }}
                 >
                   <View
-                    style={[
-                      styles.ball,
-                      { left: ballPosition.x, top: ballPosition.y },
-                    ]}
+                    style={[styles.ball, { left: ballPosition.x, top: ballPosition.y }]}
                   />
                 </View>
-
-                <View style={styles.cameraIndicator}>
+                <View style={styles.recordingIndicator}>
                   <View style={styles.recordingDot} />
                   <Text style={styles.recordingText}>Recording</Text>
                 </View>
@@ -516,15 +513,15 @@ export default function VisualPursuit() {
             </View>
           )}
 
-          {/* CameraView — full screen during align phases, PiP during test */}
+          {/* CameraView — full screen during pupil-test/align, PiP during test */}
           <CameraView
             ref={cameraRef}
-            style={isCameraFull ? StyleSheet.absoluteFill : styles.cameraPip}
+            style={showCameraFull ? StyleSheet.absoluteFill : styles.cameraPip}
             facing="front"
-            mode={cameraMode}
+            mode="video"
             mute={true}
             onCameraReady={() => {
-              console.log("[VP] onCameraReady fired, mode:", cameraMode);
+              console.log("[VP] onCameraReady");
               cameraReadyRef.current = true;
               if (pendingRecordRef.current) {
                 pendingRecordRef.current = false;
@@ -533,40 +530,80 @@ export default function VisualPursuit() {
             }}
           />
 
-          {/* Portrait / landscape align overlay */}
-          {(phase === "align-portrait" || phase === "align-landscape") && (
+          {/* Pupil brightness overlay */}
+          {phase === "pupil-test" && (
+            <Animated.View
+              style={[
+                StyleSheet.absoluteFill,
+                styles.pupilScreen,
+                {
+                  backgroundColor: brightnessAnim.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: ["#050505", "#FFFFFF"],
+                  }),
+                },
+              ]}
+            >
+              <Animated.Text
+                style={[
+                  styles.pupilText,
+                  {
+                    color: brightnessAnim.interpolate({
+                      inputRange: [0, 0.4, 1],
+                      outputRange: ["#FFFFFF", "#FFFFFF", "#1F2937"],
+                    }),
+                  },
+                ]}
+              >
+                Keep your eyes open and look at the screen
+              </Animated.Text>
+              <View style={styles.recordingIndicator}>
+                <View style={styles.recordingDot} />
+                <Text style={styles.recordingText}>Recording</Text>
+              </View>
+            </Animated.View>
+          )}
+
+          {/* Alignment overlay */}
+          {ALIGN_PHASES.has(phase) && currentRound && (
             <View style={[StyleSheet.absoluteFill, styles.alignOverlay]}>
-              {/* Header */}
-              <View style={styles.header}>
-                <TouchableOpacity onPress={handleBackToDashboard} style={styles.backButton}>
+              <View style={styles.alignHeader}>
+                <TouchableOpacity onPress={handleBack} style={styles.backButton}>
                   <Ionicons name="chevron-back" size={24} color="#FFFFFF" />
                 </TouchableOpacity>
                 <Text style={[styles.headerTitle, { color: "#FFFFFF" }]}>Visual Pursuit</Text>
                 <View style={styles.placeholder} />
               </View>
 
-              {/* Oval guide — centered in remaining space */}
-              <View style={styles.alignOvalWrap}>
-                <View style={[
-                  styles.faceOval,
-                  isLandscapePhase ? styles.faceOvalLandscape : styles.faceOvalPortrait,
-                ]} />
-              </View>
+              {isHorizontalAlign ? (
+                // Near top (near front camera) for horizontal rounds
+                <View style={styles.horizontalOvalSection}>
+                  <View style={styles.eyeOval} />
+                  <Text style={styles.alignInstruction}>{ROUND_INSTRUCTION[currentRound]}</Text>
+                  <Text style={styles.alignSubtext}>Align near the front camera</Text>
+                </View>
+              ) : (
+                // Centered for vertical rounds
+                <View style={styles.verticalOvalSection}>
+                  <View style={styles.eyeOval} />
+                  <Text style={styles.alignInstruction}>{ROUND_INSTRUCTION[currentRound]}</Text>
+                </View>
+              )}
 
-              {/* Labels at bottom */}
-              <View style={styles.alignBottomSection}>
-                <Text style={styles.alignTitle}>
-                  {isLandscapePhase ? "Hold phone sideways (landscape)" : "Hold phone upright (portrait)"}
-                </Text>
-                <Text style={styles.alignSubtitle}>Position your face inside the oval</Text>
-                <Text style={styles.alignSubtitle}>Starting in 3 seconds...</Text>
+              <View style={styles.alignBottom}>
+                <Text style={styles.roundLabel}>{ROUND_LABELS[currentRound]}</Text>
+                <Text style={styles.ballDirectionText}>{ROUND_DIRECTION[currentRound]}</Text>
+                <TouchableOpacity style={styles.okButton} onPress={onOKPressed}>
+                  <Text style={styles.okButtonText}>OK — Start Round</Text>
+                  <Ionicons name="arrow-forward" size={18} color="#FFFFFF" />
+                </TouchableOpacity>
               </View>
             </View>
           )}
         </>
       )}
 
-      {/* ── ANALYZING ──────────────────────────────────────────────────── */}
+      {/* ── ANALYZING ──────────────────────────────────────────────────────── */}
       {phase === "analyzing" && (
         <>
           <View style={styles.header}>
@@ -577,24 +614,19 @@ export default function VisualPursuit() {
           <View style={styles.analyzingContainer}>
             <ActivityIndicator size="large" color="#6366F1" />
             <Text style={styles.analyzingTitle}>Analyzing Eye Movements</Text>
-            <Text style={styles.analyzingSubtitle}>
-              AI is processing your eye tracking data...
-            </Text>
+            <Text style={styles.analyzingSubtitle}>Processing all 4 rounds...</Text>
           </View>
         </>
       )}
 
-      {/* ── RESULTS ────────────────────────────────────────────────────── */}
-      {phase === "complete" && metrics && (
+      {/* ── COMPLETE ───────────────────────────────────────────────────────── */}
+      {phase === "complete" && roundResults && (
         <>
           <View style={styles.header}>
-            <TouchableOpacity
-              onPress={handleBackToDashboard}
-              style={styles.backButton}
-            >
+            <TouchableOpacity onPress={handleBack} style={styles.backButton}>
               <Ionicons name="chevron-back" size={24} color="#1F2937" />
             </TouchableOpacity>
-            <Text style={styles.headerTitle}>Visual Pursuit — Results</Text>
+            <Text style={styles.headerTitle}>Visual Pursuit — Done</Text>
             <View style={styles.placeholder} />
           </View>
 
@@ -602,59 +634,26 @@ export default function VisualPursuit() {
             contentContainerStyle={styles.resultScreen}
             showsVerticalScrollIndicator={false}
           >
-            {!metrics.apiSuccess && (
-              <View style={styles.banner}>
-                <Ionicons name="cloud-offline-outline" size={16} color="#92400E" />
-                <Text style={styles.bannerText}>API unavailable — results may be inaccurate</Text>
-              </View>
-            )}
-
-            {[
-              { label: "Recording 1 — Portrait", data: metrics.portrait },
-              { label: "Recording 2 — Landscape", data: metrics.landscape },
-            ].map(({ label, data }) => (
-              <View key={label} style={styles.scoreCard}>
-                <Text style={styles.scoreLabel}>{label}</Text>
-                {data === null ? (
-                  <Text style={[styles.metricLabel, { color: "#9CA3AF" }]}>Analysis unavailable</Text>
-                ) : (
-                  <>
-                    <View style={styles.metricRow}>
-                      <View style={styles.metricItem}>
-                        <Text style={styles.metricLabel}>Horizontal Nystagmus (HGN)</Text>
-                        <Text style={[styles.metricValue, { color: data.xNystagmus ? "#EF4444" : "#10B981" }]}>
-                          {data.xNystagmus ? "Detected" : "Not Detected"}
-                        </Text>
-                      </View>
-                    </View>
-                    <View style={styles.metricDivider} />
-                    <View style={styles.metricRow}>
-                      <View style={styles.metricItem}>
-                        <Text style={styles.metricLabel}>Vertical Nystagmus (VGN)</Text>
-                        <Text style={[styles.metricValue, { color: data.yNystagmus ? "#EF4444" : "#10B981" }]}>
-                          {data.yNystagmus ? "Detected" : "Not Detected"}
-                        </Text>
-                      </View>
-                    </View>
-                    <View style={styles.metricDivider} />
-                    <View style={styles.metricRow}>
-                      <View style={styles.metricItem}>
-                        <Text style={styles.metricLabel}>Avg Pupil Semi-Diameter</Text>
-                        <Text style={[styles.metricValue, { color: "#6366F1" }]}>
-                          {data.avgPupilDiameter.toFixed(1)} px
-                        </Text>
-                      </View>
-                    </View>
-                  </>
-                )}
-              </View>
-            ))}
+            <View style={styles.resultCard}>
+              <Text style={styles.resultCardTitle}>Visual Pursuit — All 4 Rounds</Text>
+              {roundResults.apiSuccess ? (
+                <View style={styles.resultRow}>
+                  <Ionicons name="checkmark-circle" size={20} color="#10B981" />
+                  <Text style={styles.resultSuccess}>Analysis complete — data saved</Text>
+                </View>
+              ) : (
+                <View style={styles.resultRow}>
+                  <Ionicons name="cloud-offline-outline" size={20} color="#9CA3AF" />
+                  <Text style={styles.resultUnavailable}>API unavailable — video saved</Text>
+                </View>
+              )}
+            </View>
 
             <TouchableOpacity style={styles.retryButton} onPress={gameStartState}>
               <Ionicons name="refresh" size={20} color="#FFFFFF" />
               <Text style={styles.retryButtonText}>Try Again</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={styles.homeButton} onPress={handleBackToDashboard}>
+            <TouchableOpacity style={styles.homeButton} onPress={handleBack}>
               <Text style={styles.homeButtonText}>Back to Dashboard</Text>
             </TouchableOpacity>
           </ScrollView>
@@ -679,12 +678,11 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: "#E5E7EB",
   },
-  backButton: { padding: 4 },
-  headerTitle: { fontSize: 18, fontWeight: "700", color: "#1F2937" },
+  backButton: { padding: 4, width: 32 },
+  headerTitle: { fontSize: 17, fontWeight: "700", color: "#1F2937", flex: 1, textAlign: "center" },
   placeholder: { width: 32 },
 
   scrollContent: { padding: 20, paddingBottom: 40 },
-
   iconContainer: {
     width: 120,
     height: 120,
@@ -693,22 +691,22 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     alignSelf: "center",
-    marginBottom: 30,
+    marginBottom: 28,
   },
   instructionTitle: {
     fontSize: 24,
     fontWeight: "700",
     color: "#1F2937",
     textAlign: "center",
-    marginBottom: 16,
+    marginBottom: 12,
   },
   instructionText: {
-    fontSize: 16,
+    fontSize: 15,
     color: "#6B7280",
     textAlign: "center",
-    lineHeight: 24,
-    marginBottom: 30,
-    paddingHorizontal: 20,
+    lineHeight: 23,
+    marginBottom: 28,
+    paddingHorizontal: 8,
   },
 
   exampleBox: {
@@ -717,57 +715,49 @@ const styles = StyleSheet.create({
     padding: 20,
     borderWidth: 1,
     borderColor: "#E5E7EB",
-    marginBottom: 30,
+    marginBottom: 24,
   },
   exampleLabel: {
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: "700",
     color: "#1F2937",
-    marginBottom: 20,
+    marginBottom: 16,
     textAlign: "center",
   },
-  stepContainer: { marginBottom: 20 },
-  step: { flexDirection: "row", alignItems: "center", marginBottom: 16 },
+  stepContainer: { marginBottom: 16 },
+  step: { flexDirection: "row", alignItems: "center", marginBottom: 14 },
   stepNumber: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
+    width: 30,
+    height: 30,
+    borderRadius: 15,
     backgroundColor: "#6366F1",
     alignItems: "center",
     justifyContent: "center",
     marginRight: 12,
+    flexShrink: 0,
   },
-  stepNumberText: { fontSize: 16, fontWeight: "700", color: "#FFFFFF" },
-  stepText: { flex: 1, fontSize: 14, color: "#1F2937", lineHeight: 20 },
+  stepNumberText: { fontSize: 14, fontWeight: "700", color: "#FFFFFF" },
+  stepText: { flex: 1, fontSize: 14, color: "#374151", lineHeight: 20 },
   exampleNote: {
     flexDirection: "row",
     alignItems: "center",
     backgroundColor: "#EEF2FF",
     padding: 12,
     borderRadius: 8,
+    gap: 8,
   },
-  exampleNoteText: {
-    fontSize: 14,
-    color: "#6B7280",
-    marginLeft: 8,
-    flex: 1,
-  },
+  exampleNoteText: { fontSize: 13, color: "#4338CA", flex: 1, lineHeight: 18 },
 
   rulesBox: {
     backgroundColor: "#F9FAFB",
     borderRadius: 12,
-    padding: 20,
+    padding: 18,
     borderWidth: 1,
     borderColor: "#E5E7EB",
-    marginBottom: 30,
+    marginBottom: 28,
   },
-  rulesTitle: {
-    fontSize: 16,
-    fontWeight: "700",
-    color: "#1F2937",
-    marginBottom: 16,
-  },
-  rule: { flexDirection: "row", alignItems: "flex-start", marginBottom: 12 },
+  rulesTitle: { fontSize: 15, fontWeight: "700", color: "#1F2937", marginBottom: 14 },
+  rule: { flexDirection: "row", alignItems: "flex-start", marginBottom: 10 },
   bulletPoint: {
     width: 6,
     height: 6,
@@ -775,6 +765,7 @@ const styles = StyleSheet.create({
     backgroundColor: "#6366F1",
     marginTop: 7,
     marginRight: 12,
+    flexShrink: 0,
   },
   ruleText: { flex: 1, fontSize: 14, color: "#6B7280", lineHeight: 20 },
 
@@ -785,21 +776,17 @@ const styles = StyleSheet.create({
     backgroundColor: "#6366F1",
     paddingVertical: 16,
     borderRadius: 12,
+    gap: 8,
   },
-  startButtonText: {
-    fontSize: 16,
-    fontWeight: "600",
-    color: "#FFFFFF",
-    marginRight: 8,
-  },
+  startButtonText: { fontSize: 16, fontWeight: "600", color: "#FFFFFF" },
 
   // Camera PiP during test phases
   cameraPip: {
     position: "absolute",
-    top: 80,
+    top: 84,
     right: 12,
-    width: 90,
-    height: 120,
+    width: 80,
+    height: 108,
     borderRadius: 8,
     overflow: "hidden",
     borderWidth: 2,
@@ -807,343 +794,7 @@ const styles = StyleSheet.create({
     zIndex: 10,
   },
 
-  alignOverlay: { backgroundColor: "rgba(0,0,0,0.35)" },
-  alignOvalWrap: {
-    flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  faceOval: {
-    borderWidth: 3,
-    borderColor: "#6366F1",
-    borderStyle: "dashed",
-    backgroundColor: "transparent",
-    borderRadius: 9999,
-  },
-  faceOvalPortrait: {
-    width: width * 0.88,
-    height: width * 1.32,
-  },
-  faceOvalLandscape: {
-    width: width * 0.78,
-    height: width * 0.42,
-  },
-  alignBottomSection: {
-    paddingHorizontal: 24,
-    paddingBottom: 32,
-    alignItems: "center",
-    gap: 8,
-  },
-  alignTitle: {
-    fontSize: 18,
-    fontWeight: "600",
-    color: "#FFFFFF",
-    textAlign: "center",
-  },
-  alignSubtitle: {
-    fontSize: 14,
-    color: "#D1D5DB",
-    textAlign: "center",
-  },
-  readyButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "#6366F1",
-    paddingVertical: 14,
-    paddingHorizontal: 32,
-    borderRadius: 12,
-    marginTop: 24,
-    gap: 8,
-  },
-  readyButtonText: {
-    fontSize: 16,
-    fontWeight: "700",
-    color: "#FFFFFF",
-  },
-
-  // Game screen
-  gameScreen: { flex: 1, padding: 20 },
-  statsContainer: {
-    flexDirection: "row",
-    justifyContent: "center",
-    marginBottom: 20,
-  },
-  directionCard: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "#EEF2FF",
-    paddingVertical: 8,
-    paddingHorizontal: 16,
-    borderRadius: 12,
-    borderWidth: 2,
-    borderColor: "#6366F1",
-  },
-  directionText: {
-    fontSize: 14,
-    fontWeight: "600",
-    color: "#4338CA",
-    marginLeft: 8,
-  },
-  instructionCard: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "#EEF2FF",
-    padding: 16,
-    borderRadius: 12,
-    marginBottom: 20,
-  },
-  gameInstruction: {
-    fontSize: 14,
-    fontWeight: "600",
-    color: "#4338CA",
-    marginLeft: 12,
-    flex: 1,
-  },
-  canvas: {
-    flex: 1,
-    backgroundColor: "#FFFFFF",
-    borderRadius: 16,
-    borderWidth: 2,
-    borderColor: "#6366F1",
-    position: "relative",
-    marginBottom: 20,
-  },
-  ball: {
-    position: "absolute",
-    width: BALL_SIZE,
-    height: BALL_SIZE,
-    borderRadius: BALL_SIZE / 2,
-    backgroundColor: "#EAB308",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.3,
-    shadowRadius: 4,
-    elevation: 5,
-  },
-  cameraIndicator: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "#FEE2E2",
-    padding: 12,
-    borderRadius: 8,
-  },
-  recordingDot: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-    backgroundColor: "#EF4444",
-    marginRight: 8,
-  },
-  recordingText: { fontSize: 14, fontWeight: "600", color: "#991B1B" },
-
-  // Analyzing
-  analyzingContainer: {
-    flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
-    gap: 16,
-  },
-  analyzingTitle: {
-    fontSize: 20,
-    fontWeight: "700",
-    color: "#1F2937",
-    marginTop: 8,
-  },
-  analyzingSubtitle: { fontSize: 14, color: "#6B7280", textAlign: "center" },
-
-  // Banner (permission warning / API offline)
-  banner: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "#FEF3C7",
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    marginHorizontal: 20,
-    marginBottom: 16,
-    borderRadius: 8,
-    gap: 8,
-  },
-  bannerText: { flex: 1, fontSize: 13, color: "#92400E" },
-
-  // Results
-  resultScreen: {
-    flexGrow: 1,
-    alignItems: "center",
-    padding: 20,
-    paddingBottom: 40,
-  },
-  resultTitle: {
-    fontSize: 24,
-    fontWeight: "700",
-    color: "#1F2937",
-    marginBottom: 8,
-  },
-  resultSubtitle: {
-    fontSize: 14,
-    color: "#6B7280",
-    textAlign: "center",
-    marginBottom: 20,
-  },
-  scoreCard: {
-    backgroundColor: "#FFFFFF",
-    borderRadius: 16,
-    padding: 32,
-    alignItems: "center",
-    borderWidth: 1,
-    borderColor: "#E5E7EB",
-    marginBottom: 20,
-    width: "100%",
-  },
-  scoreLabel: { fontSize: 14, color: "#6B7280", marginBottom: 8 },
-  scoreValue: { fontSize: 56, fontWeight: "700", color: "#6366F1" },
-  scoreSubtext: { fontSize: 14, color: "#9CA3AF", marginBottom: 20 },
-  statsRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingTop: 20,
-    borderTopWidth: 1,
-    borderTopColor: "#E5E7EB",
-    width: "100%",
-  },
-  statItem: { flex: 1, alignItems: "center" },
-  statItemDivider: { width: 1, height: 40, backgroundColor: "#E5E7EB" },
-  statItemLabel: { fontSize: 12, color: "#6B7280", marginBottom: 6 },
-  statItemValue: { fontSize: 20, fontWeight: "700", color: "#1F2937" },
-  calibStatusRow: { flexDirection: "row", alignItems: "center", gap: 8, marginTop: 16, marginBottom: 8, paddingHorizontal: 16 },
-  calibDot: { width: 12, height: 12, borderRadius: 6, backgroundColor: "#9CA3AF" },
-  calibStatusText: { color: "#FFFFFF", fontSize: 14, fontWeight: "600", flexShrink: 1 },
-  metricRow: { width: "100%", marginBottom: 12 },
-  metricDivider: { height: 1, backgroundColor: "#E5E7EB", marginBottom: 12 },
-  metricItem: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    marginBottom: 8,
-  },
-  metricLabel: { fontSize: 14, fontWeight: "600", color: "#6B7280" },
-  metricValue: { fontSize: 14, fontWeight: "700", color: "#1F2937" },
-  metricBar: {
-    height: 8,
-    backgroundColor: "#F3F4F6",
-    borderRadius: 4,
-    overflow: "hidden",
-  },
-  metricBarFill: { height: "100%", borderRadius: 4 },
-
-  retryButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "#6366F1",
-    paddingVertical: 16,
-    paddingHorizontal: 32,
-    borderRadius: 12,
-    marginBottom: 16,
-  },
-  retryButtonText: {
-    fontSize: 16,
-    fontWeight: "600",
-    color: "#FFFFFF",
-    marginLeft: 8,
-  },
-  homeButton: { paddingVertical: 12 },
-  homeButtonText: { fontSize: 16, fontWeight: "600", color: "#6366F1" },
-
-  // Face calibration status pill
-  faceStatusPill: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingVertical: 10,
-    paddingHorizontal: 18,
-    borderRadius: 24,
-    backgroundColor: "rgba(0,0,0,0.55)",
-    gap: 8,
-    marginTop: 16,
-  },
-  faceStatusReady: {
-    backgroundColor: "rgba(16, 185, 129, 0.2)",
-    borderWidth: 1,
-    borderColor: "#10B981",
-  },
-  faceStatusNone: {
-    backgroundColor: "rgba(0,0,0,0.45)",
-  },
-  faceStatusWarn: {
-    backgroundColor: "rgba(245, 158, 11, 0.2)",
-    borderWidth: 1,
-    borderColor: "#F59E0B",
-  },
-  faceStatusText: {
-    fontSize: 14,
-    fontWeight: "600",
-    color: "#FFFFFF",
-  },
-
-  // Face calibration
-  faceAlignCheck: {
-    position: "absolute",
-    bottom: 60,
-    alignSelf: "center",
-    alignItems: "center",
-    gap: 8,
-  },
-  faceAlignCheckText: {
-    fontSize: 18,
-    fontWeight: "700",
-    color: "#10B981",
-  },
-
-  // Distance check screen
-  distanceScreen: {
-    flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
-    padding: 40,
-    gap: 20,
-  },
-  distanceIconWrap: {
-    width: 120,
-    height: 120,
-    borderRadius: 60,
-    backgroundColor: "#EEF2FF",
-    alignItems: "center",
-    justifyContent: "center",
-    marginBottom: 10,
-  },
-  distanceTitle: {
-    fontSize: 22,
-    fontWeight: "700",
-    color: "#1F2937",
-    textAlign: "center",
-  },
-  distanceSubtitle: {
-    fontSize: 16,
-    color: "#6B7280",
-    textAlign: "center",
-    lineHeight: 24,
-  },
-  distanceTip: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "#EEF2FF",
-    padding: 14,
-    borderRadius: 12,
-    gap: 10,
-  },
-  distanceTipText: {
-    flex: 1,
-    fontSize: 14,
-    color: "#4338CA",
-    lineHeight: 20,
-  },
-  distanceCountdown: {
-    fontSize: 14,
-    color: "#9CA3AF",
-    fontStyle: "italic",
-    marginTop: 8,
-  },
-
-  // Pupil brightness test
+  // Pupil test
   pupilScreen: {
     flex: 1,
     justifyContent: "center",
@@ -1157,4 +808,194 @@ const styles = StyleSheet.create({
     textAlign: "center",
     lineHeight: 28,
   },
+
+  // Alignment overlay
+  alignOverlay: { backgroundColor: "rgba(0,0,0,0.40)" },
+  alignHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    backgroundColor: "rgba(0,0,0,0.25)",
+  },
+
+  // Eye oval — eye-shaped, inclusive for all eye sizes
+  eyeOval: {
+    width: EYE_OVAL_W,
+    height: EYE_OVAL_H,
+    borderRadius: 9999,
+    borderWidth: 2.5,
+    borderColor: "#6366F1",
+    borderStyle: "dashed",
+    backgroundColor: "transparent",
+  },
+
+  // Vertical rounds: oval centered in remaining space
+  verticalOvalSection: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    gap: 18,
+  },
+
+  // Horizontal rounds: oval near top (near front camera)
+  horizontalOvalSection: {
+    paddingTop: 28,
+    alignItems: "center",
+    gap: 14,
+  },
+
+  alignInstruction: {
+    fontSize: 15,
+    fontWeight: "600",
+    color: "#FFFFFF",
+    textAlign: "center",
+    paddingHorizontal: 24,
+  },
+  alignSubtext: {
+    fontSize: 13,
+    color: "#D1D5DB",
+    textAlign: "center",
+  },
+
+  alignBottom: {
+    paddingHorizontal: 24,
+    paddingBottom: 36,
+    alignItems: "center",
+    gap: 10,
+  },
+  roundLabel: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#E5E7EB",
+    textAlign: "center",
+  },
+  ballDirectionText: {
+    fontSize: 13,
+    color: "#D1D5DB",
+    textAlign: "center",
+  },
+  okButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#6366F1",
+    paddingVertical: 14,
+    paddingHorizontal: 32,
+    borderRadius: 12,
+    marginTop: 6,
+    gap: 8,
+  },
+  okButtonText: { fontSize: 16, fontWeight: "700", color: "#FFFFFF" },
+
+  // Game screen during test phases
+  gameScreen: { flex: 1, padding: 16 },
+  instructionCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#EEF2FF",
+    padding: 12,
+    borderRadius: 10,
+    marginBottom: 14,
+    gap: 10,
+  },
+  gameInstruction: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: "#4338CA",
+    flex: 1,
+  },
+  canvas: {
+    flex: 1,
+    backgroundColor: "#FFFFFF",
+    borderRadius: 16,
+    borderWidth: 2,
+    borderColor: "#6366F1",
+    position: "relative",
+    marginBottom: 14,
+    overflow: "hidden",
+  },
+  ball: {
+    position: "absolute",
+    width: BALL_SIZE,
+    height: BALL_SIZE,
+    borderRadius: BALL_SIZE / 2,
+    backgroundColor: "#EAB308",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    elevation: 5,
+  },
+  recordingIndicator: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#FEE2E2",
+    padding: 10,
+    borderRadius: 8,
+    gap: 8,
+  },
+  recordingDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: "#EF4444",
+  },
+  recordingText: { fontSize: 13, fontWeight: "600", color: "#991B1B" },
+
+  // Analyzing
+  analyzingContainer: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    gap: 16,
+  },
+  analyzingTitle: { fontSize: 20, fontWeight: "700", color: "#1F2937", marginTop: 8 },
+  analyzingSubtitle: { fontSize: 14, color: "#6B7280", textAlign: "center" },
+
+  // Results
+  resultScreen: { padding: 20, paddingBottom: 40 },
+  resultCard: {
+    backgroundColor: "#FFFFFF",
+    borderRadius: 14,
+    padding: 18,
+    marginBottom: 14,
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+    gap: 10,
+  },
+  resultCardTitle: { fontSize: 15, fontWeight: "700", color: "#1F2937" },
+  resultRow: { flexDirection: "row", alignItems: "center", gap: 8 },
+  resultSuccess: { fontSize: 13, color: "#065F46", fontWeight: "500" },
+  resultUnavailable: { fontSize: 13, color: "#9CA3AF" },
+
+  retryButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#6366F1",
+    paddingVertical: 15,
+    borderRadius: 12,
+    marginBottom: 14,
+    gap: 8,
+  },
+  retryButtonText: { fontSize: 15, fontWeight: "600", color: "#FFFFFF" },
+  homeButton: { paddingVertical: 12, alignItems: "center" },
+  homeButtonText: { fontSize: 15, fontWeight: "600", color: "#6366F1" },
+
+  // Banner (permission warning)
+  banner: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#FEF3C7",
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    marginHorizontal: 20,
+    marginBottom: 16,
+    borderRadius: 8,
+    gap: 8,
+  },
+  bannerText: { flex: 1, fontSize: 13, color: "#92400E" },
 });

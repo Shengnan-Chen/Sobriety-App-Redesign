@@ -1,5 +1,5 @@
 import { addDoc, collection, doc, getDocs, query, serverTimestamp, updateDoc, where } from 'firebase/firestore';
-import { db } from './firebase';
+import { db, auth } from './firebase';
 import { EMPATICA_PARTICIPANT } from './empaticaConfig';
 
 export type GameType =
@@ -163,6 +163,7 @@ export async function saveGameResult(
     const docRef = await addDoc(collection(db, 'game_results'), {
       gameType,
       participantId,
+      userEmail: auth.currentUser?.email ?? null,
       sessionType,
       startTime: startTime.toISOString(),
       endTime: endTime.toISOString(),

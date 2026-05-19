@@ -54,23 +54,14 @@ function formatMetricKey(key: string): string {
 export default function SessionResults() {
   const router = useRouter();
   const { sessionResults, sessionGameTimes, sessionStartTime, gameQueue, resetSession, awaitAllPendingJobs, hasPendingJobs, partialSessionId } = useSession();
-  const [saving, setSaving] = useState(false);
-  const [awaitingAnalysis, setAwaitingAnalysis] = useState(false);
+  const [saveState, setSaveState] = useState<'pending' | 'saving' | 'saved' | 'error'>('pending');
 
-  // If background analysis jobs are still running when we arrive here,
-  // wait for them automatically so the save button shows accurate data.
+  // Auto-save as soon as this screen mounts (after any background analysis jobs finish).
+  // This way the session is in Firestore even if the user closes the app without tapping the button.
   useEffect(() => {
-    if (!hasPendingJobs()) return;
-    setAwaitingAnalysis(true);
-    awaitAllPendingJobs().then(() => setAwaitingAnalysis(false));
-  }, []);
-
-  const handleSaveAndReturn = async () => {
-    setSaving(true);
-    try {
-      // In case jobs finished between the useEffect and the button press
-      await awaitAllPendingJobs();
-      await saveSession(
+    setSaveState('saving');
+    awaitAllPendingJobs()          // wait for VP / TT background analysis if still running
+      .then(() => saveSession(
         EMPATICA_PARTICIPANT.fullId,
         sessionStartTime ?? new Date(),
         new Date(),
@@ -78,11 +69,16 @@ export default function SessionResults() {
         sessionGameTimes,
         'complete',
         gameQueue,
-        partialSessionId ?? undefined,  // updates existing doc if this was a resumed session
-      );
-    } catch (e) {
-      console.log('[SessionResults] Save error:', e);
-    }
+        partialSessionId ?? undefined,
+      ))
+      .then(() => setSaveState('saved'))
+      .catch(e => {
+        console.log('[SessionResults] Auto-save error:', e);
+        setSaveState('error');
+      });
+  }, []);
+
+  const handleReturn = () => {
     resetSession();
     router.replace('/(tabs)/dashboard');
   };
@@ -151,22 +147,56 @@ export default function SessionResults() {
           );
         })}
 
-        <TouchableOpacity
-          style={[styles.saveButton, (saving || awaitingAnalysis) && styles.saveButtonDisabled]}
-          onPress={handleSaveAndReturn}
-          disabled={saving || awaitingAnalysis}
-        >
-          {awaitingAnalysis ? (
+        {/* Save status indicator */}
+        <View style={styles.saveStatus}>
+          {saveState === 'saving' && (
             <>
-              <ActivityIndicator color="#FFFFFF" />
-              <Text style={styles.saveButtonText}>Completing analysis...</Text>
+              <ActivityIndicator size="small" color="#6366F1" />
+              <Text style={styles.saveStatusText}>Saving session...</Text>
             </>
-          ) : saving ? (
+          )}
+          {saveState === 'saved' && (
+            <>
+              <Ionicons name="checkmark-circle" size={18} color="#10B981" />
+              <Text style={[styles.saveStatusText, { color: '#10B981' }]}>Session saved</Text>
+            </>
+          )}
+          {saveState === 'error' && (
+            <>
+              <Ionicons name="warning-outline" size={18} color="#EF4444" />
+              <Text style={[styles.saveStatusText, { color: '#EF4444' }]}>Save failed — tap below to retry</Text>
+            </>
+          )}
+        </View>
+
+        <TouchableOpacity
+          style={[styles.saveButton, saveState === 'saving' && styles.saveButtonDisabled]}
+          onPress={saveState === 'error' ? () => {
+            setSaveState('saving');
+            saveSession(
+              EMPATICA_PARTICIPANT.fullId,
+              sessionStartTime ?? new Date(),
+              new Date(),
+              sessionResults,
+              sessionGameTimes,
+              'complete',
+              gameQueue,
+              partialSessionId ?? undefined,
+            ).then(() => setSaveState('saved')).catch(() => setSaveState('error'));
+          } : handleReturn}
+          disabled={saveState === 'saving'}
+        >
+          {saveState === 'saving' ? (
             <ActivityIndicator color="#FFFFFF" />
+          ) : saveState === 'error' ? (
+            <>
+              <Ionicons name="refresh" size={20} color="#FFFFFF" />
+              <Text style={styles.saveButtonText}>Retry Save</Text>
+            </>
           ) : (
             <>
-              <Ionicons name="cloud-upload-outline" size={20} color="#FFFFFF" />
-              <Text style={styles.saveButtonText}>Save & Return to Dashboard</Text>
+              <Ionicons name="home-outline" size={20} color="#FFFFFF" />
+              <Text style={styles.saveButtonText}>Return to Dashboard</Text>
             </>
           )}
         </TouchableOpacity>
@@ -249,6 +279,15 @@ const styles = StyleSheet.create({
   },
   saveButtonDisabled: { opacity: 0.6 },
   saveButtonText: { fontSize: 16, fontWeight: '600', color: '#FFFFFF' },
+  saveStatus: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    marginBottom: 10,
+    minHeight: 24,
+  },
+  saveStatusText: { fontSize: 13, fontWeight: '500', color: '#6B7280' },
 });
 
 

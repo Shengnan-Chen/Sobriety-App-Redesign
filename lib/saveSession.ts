@@ -1,5 +1,5 @@
 import { addDoc, collection, doc, serverTimestamp, updateDoc } from 'firebase/firestore';
-import { db } from './firebase';
+import { db, auth } from './firebase';
 import { EMPATICA_PARTICIPANT } from './empaticaConfig';
 
 const EMPATICA_GAMES = new Set(['walk_and_turn', 'single_leg_stand']);
@@ -35,6 +35,7 @@ export async function saveSession(
 
     const data: Record<string, any> = {
       participantId,
+      userEmail: auth.currentUser?.email ?? null,
       mode: 'full_session',
       status,
       startTime: startTime.toISOString(),

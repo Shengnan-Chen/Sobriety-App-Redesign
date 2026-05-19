@@ -22,9 +22,10 @@ export function parseParticipantConfig(
   if (parts.length < 4) return null;
   const [orgId, siteId, participantId] = parts;
   if (!orgId || !siteId || !participantId) return null;
-  const subjectId = parts.slice(1).join('-');        // '1-1-1'
-  const deviceId  = `${siteId}-${serialNumber.trim()}`; // '1-3YK671D258'
-  return { fullId: fullId.trim(), serialNumber: serialNumber.trim(), orgId, siteId, participantId, subjectId, deviceId };
+  const serial    = serialNumber.trim().toUpperCase(); // normalise — S3 keys are uppercase
+  const subjectId = parts.slice(1).join('-');          // '1-1-1'
+  const deviceId  = `${siteId}-${serial}`;             // '1-3YK671D258'
+  return { fullId: fullId.trim(), serialNumber: serial, orgId, siteId, participantId, subjectId, deviceId };
 }
 
 export async function saveParticipantConfig(config: ParticipantConfig): Promise<void> {

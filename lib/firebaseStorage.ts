@@ -1,9 +1,34 @@
-import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
-import { storage } from './firebase';
+import { ref, getDownloadURL } from 'firebase/storage';
+import { auth, storage } from './firebase';
+import * as FileSystem from 'expo-file-system/legacy';
 
-async function uriToBlob(uri: string): Promise<Blob> {
-  const response = await fetch(uri);
-  return response.blob();
+const BUCKET = 'sobreity-test.firebasestorage.app';
+
+// Streams the file directly to Firebase Storage REST API using native code.
+// Avoids loading the file into a JS Blob, which fails for large videos on Android.
+async function nativeUpload(
+  localUri: string,
+  storagePath: string,
+  contentType: string,
+): Promise<string> {
+  const token = await auth.currentUser?.getIdToken();
+  const encodedPath = encodeURIComponent(storagePath);
+  const uploadUrl = `https://firebasestorage.googleapis.com/v0/b/${BUCKET}/o?uploadType=media&name=${encodedPath}`;
+
+  const result = await FileSystem.uploadAsync(uploadUrl, localUri, {
+    httpMethod: 'POST',
+    uploadType: FileSystem.FileSystemUploadType.BINARY_CONTENT,
+    headers: {
+      ...(token ? { Authorization: `Firebase ${token}` } : {}),
+      'Content-Type': contentType,
+    },
+  });
+
+  if (result.status < 200 || result.status >= 300) {
+    throw new Error(`Upload HTTP ${result.status}: ${result.body.slice(0, 200)}`);
+  }
+
+  return getDownloadURL(ref(storage, storagePath));
 }
 
 export async function uploadVideo(
@@ -16,10 +41,7 @@ export async function uploadVideo(
     const timestamp = Date.now();
     const path = `videos/${participantId}/${gameType}/${label}_${timestamp}.mp4`;
     console.log(`[Storage] Uploading video: ${path}`);
-    const blob = await uriToBlob(localUri);
-    const storageRef = ref(storage, path);
-    await uploadBytes(storageRef, blob);
-    const url = await getDownloadURL(storageRef);
+    const url = await nativeUpload(localUri, path, 'video/mp4');
     console.log(`[Storage] Video uploaded: ${url}`);
     return url;
   } catch (e) {
@@ -39,10 +61,7 @@ export async function uploadAudio(
     const safeName = phrase.replace(/[^a-z0-9]/gi, '_').slice(0, 30);
     const path = `audio/${participantId}/tongue_twister/${index}_${safeName}_${timestamp}.m4a`;
     console.log(`[Storage] Uploading audio: ${path}`);
-    const blob = await uriToBlob(localUri);
-    const storageRef = ref(storage, path);
-    await uploadBytes(storageRef, blob);
-    const url = await getDownloadURL(storageRef);
+    const url = await nativeUpload(localUri, path, 'audio/m4a');
     console.log(`[Storage] Audio uploaded: ${url}`);
     return url;
   } catch (e) {

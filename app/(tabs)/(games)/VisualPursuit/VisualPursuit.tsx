@@ -876,7 +876,15 @@ export default function VisualPursuit() {
               </Text>
             </View>
 
-            <TouchableOpacity style={styles.startButton} onPress={gameStartState}>
+            {/* Eye-fills-oval instruction */}
+            <View style={[styles.exampleNote, { backgroundColor: '#FEF3C7', marginTop: 12, borderWidth: 1, borderColor: '#FCD34D' }]}>
+              <Ionicons name="eye-outline" size={20} color="#92400E" />
+              <Text style={[styles.exampleNoteText, { color: '#92400E' }]}>
+                The phone needs to be positioned so the eye fills the whole oval.
+              </Text>
+            </View>
+
+            <TouchableOpacity style={[styles.startButton, { marginTop: 20 }]} onPress={gameStartState}>
               <Text style={styles.startButtonText}>Begin Test</Text>
               <Ionicons name="arrow-forward" size={20} color="#FFFFFF" />
             </TouchableOpacity>
@@ -991,12 +999,14 @@ export default function VisualPursuit() {
                   <>
                     <Text style={styles.alignInstruction}>{ROUND_INSTRUCTION[currentRound]}</Text>
                     <Text style={styles.alignSubtext}>Align near the front camera</Text>
+                    <Text style={styles.alignSubtext}>The phone needs to be positioned so the eye fills the whole oval.</Text>
                     <Text style={styles.roundLabel}>{ROUND_LABELS[currentRound]}</Text>
                   </>
                 ) : (
                   <>
                     <Text style={styles.roundLabel}>{ROUND_LABELS[currentRound]}</Text>
                     <Text style={styles.ballDirectionText}>{ROUND_DIRECTION[currentRound]}</Text>
+                    <Text style={styles.alignSubtext}>The phone needs to be positioned so the eye fills the whole oval.</Text>
                   </>
                 )}
                 <TouchableOpacity style={styles.okButton} onPress={onOKPressed}>

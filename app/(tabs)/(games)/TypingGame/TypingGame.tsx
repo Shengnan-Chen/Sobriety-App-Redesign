@@ -256,6 +256,7 @@ export default function TypingChallenge() {
               {[
                 'Type the text shown on the screen.',
                 'Type as accurately and quickly as possible within 60 seconds.',
+                'Capitalization and punctuation are scored.',
               ].map((text, i) => (
                 <View key={i} style={styles.tcStep}>
                   <View style={styles.tcStepNum}>
@@ -268,6 +269,14 @@ export default function TypingChallenge() {
 
             {/* Step illustration */}
             <Image source={TC_INSTR} style={styles.tcInstImg} resizeMode="contain" />
+
+            {/* Caps/punctuation warning */}
+            <View style={styles.capsWarning}>
+              <Ionicons name="alert-circle" size={20} color="#92400E" />
+              <Text style={styles.capsWarningText}>
+                Capitalization and punctuation are scored — type exactly as shown.
+              </Text>
+            </View>
 
             {/* Tip */}
             <View style={styles.autocorrectWarning}>
@@ -821,6 +830,25 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     color: "#4F46E5",
   },
+  capsWarning: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    backgroundColor: "#FEE2E2",
+    borderRadius: 10,
+    padding: 14,
+    marginBottom: 12,
+    gap: 10,
+    borderWidth: 1,
+    borderColor: "#FECACA",
+    width: "100%",
+  },
+  capsWarningText: {
+    flex: 1,
+    fontSize: 13,
+    color: "#92400E",
+    lineHeight: 19,
+    fontWeight: "600",
+  },
   autocorrectWarning: {
     flexDirection: "row",
     alignItems: "flex-start",
@@ -831,6 +859,7 @@ const styles = StyleSheet.create({
     gap: 10,
     borderWidth: 1,
     borderColor: "#FCD34D",
+    width: "100%",
   },
   autocorrectWarningText: {
     flex: 1,

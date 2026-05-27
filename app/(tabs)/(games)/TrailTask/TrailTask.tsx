@@ -66,6 +66,9 @@ export default function TrailMaking() {
   const errorCountRef = useRef(0);
   const [wronglyTouched, setWronglyTouched] = useState<Set<number>>(new Set());
   const wronglyTouchedRef = useRef<Set<number>>(new Set());
+  const [timeLeft, setTimeLeft] = useState(60);
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const currentIndexRef = useRef(0);
 
   // Finger tracking
   const [fingerDown, setFingerDown] = useState(false);
@@ -83,15 +86,17 @@ export default function TrailMaking() {
   }, []);
 
   const handleBackToDashboard = () => {
+    if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; }
     setGameStart(false);
     setGameCompleted(false);
     setCircles([]);
     setConnectedLines([]);
-    setCurrentIndex(0);
+    setCurrentIndex(0); currentIndexRef.current = 0;
     setIsFailed(false);
     setFingerDown(false);
     setFingerPath([]);
     setLastTouchedCircle(null);
+    setTimeLeft(60);
 
     router.replace('/(tabs)/dashboard');
   };
@@ -155,6 +160,7 @@ export default function TrailMaking() {
       while (nextIndex < circles.length && wronglyTouchedRef.current.has(nextIndex)) {
         nextIndex++; // skip over wrongly-touched bubbles — they're already yellow
       }
+      currentIndexRef.current = nextIndex;
       setCurrentIndex(nextIndex);
       if (nextIndex >= circles.length) {
         finishGame(Date.now(), false, circles.length, circles.length);
@@ -171,6 +177,7 @@ export default function TrailMaking() {
   };
 
   const finishGame = (endMs: number, failed: boolean, progressIndex: number, totalCircles: number) => {
+    if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; }
     const duration = Math.round((endMs - startTime) / 1000);
     setCompletionTime(duration);
     setGameCompleted(true);
@@ -219,6 +226,23 @@ export default function TrailMaking() {
     setFingerDown(false);
     setFingerPath([]);
     setLastTouchedCircle(null);
+    setTimeLeft(60);
+    currentIndexRef.current = 0;
+
+    // Start 60-second countdown
+    if (timerRef.current) clearInterval(timerRef.current);
+    const gameStartMs = Date.now();
+    timerRef.current = setInterval(() => {
+      setTimeLeft(prev => {
+        const next = prev - 1;
+        if (next <= 0) {
+          if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; }
+          finishGame(gameStartMs + 60000, true, currentIndexRef.current, sequenceRef.current.length);
+          return 0;
+        }
+        return next;
+      });
+    }, 1000);
   };
 
   return (
@@ -253,6 +277,8 @@ export default function TrailMaking() {
               {[
                 'Find the starting point to begin the test.',
                 'Connect the letters and numbers in alternating order (e.g., F→1→G→2).',
+                'You can lift your finger and re-draw at any time — you won\'t be penalised.',
+                'You can cross through the lines you already drew without penalty.',
               ].map((text, i) => (
                 <View key={i} style={styles.trtStep}>
                   <View style={styles.trtStepNum}>
@@ -309,8 +335,12 @@ export default function TrailMaking() {
                 <Text style={styles.statLabel}>Start:</Text>
                 <Text style={styles.statText}>{startLetter}</Text>
               </View>
+              <View style={[styles.statCard, { marginLeft: 8, borderColor: timeLeft <= 10 ? '#EF4444' : '#E5E7EB' }]}>
+                <Ionicons name="time-outline" size={16} color={timeLeft <= 10 ? '#EF4444' : '#6B7280'} style={{ marginRight: 4 }} />
+                <Text style={[styles.statText, { color: timeLeft <= 10 ? '#EF4444' : '#F59E0B', fontSize: 18 }]}>{timeLeft}s</Text>
+              </View>
               <View style={styles.instructionCard}>
-                <Text style={styles.instructionCardText}>Draw a continuous line without lifting your finger</Text>
+                <Text style={styles.instructionCardText}>Lift and re-draw freely — connect all circles in order</Text>
               </View>
             </View>
 
@@ -347,12 +377,9 @@ export default function TrailMaking() {
                 });
               }}
               onTouchEnd={() => {
-                if (fingerDown && currentIndex < circles.length) {
-                  // User lifted finger before completing - FAIL
-                  finishGame(Date.now(), true, currentIndex, circles.length);
-                }
                 setFingerDown(false);
                 setFingerPath([]);
+                setLastTouchedCircle(null);
               }}
             >
               <Svg width={CANVAS_WIDTH} height={CANVAS_HEIGHT} style={styles.svg}>
@@ -454,7 +481,7 @@ export default function TrailMaking() {
                 ? errorCount === 0
                   ? 'You completed the trail without any errors!'
                   : `You completed the trail with ${errorCount} error${errorCount === 1 ? '' : 's'}.`
-                : 'You lifted your finger too early'}
+                : 'Time ran out before the trail was completed.'}
             </Text>
 
             <View style={styles.scoreCard}>

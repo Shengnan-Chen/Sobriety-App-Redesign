@@ -87,32 +87,31 @@ function jaccardDist(a: Set<string>, b: Set<string>): number {
 //   - direction sequence derived from those dots
 // ─────────────────────────────────────────────────────────────────────────────
 const SYMBOL_CHARS = [
-  '>', '✓', '✕', 'Z', 'L', 'U', '◇', 'N', 'W', '/',
+  '>', '✕', 'Z', 'L', 'U', '◇', 'N', 'W', '/',
   'T', '+', '7', 'Λ', 'V', 'Π', 'Γ', '⊏', '<', '=',
 ];
 
 
 const CANONICAL_SEQS: number[][][] = [
   [[0, 5, 6]],             // 0  >   right chevron
-  [[2, 7, 3]],             // 1  ✓   checkmark
-  [[0, 4, 8], [2, 4, 6]],  // 2  ✕   X (two strokes)
-  [[0, 2, 6, 8]],          // 3  Z   shape
-  [[0, 6, 8]],             // 4  L   shape
-  [[0, 6, 8, 2]],          // 5  U   shape
-  [[1, 5, 7, 3], [1, 3]],  // 6  ◇   diamond
-  [[0, 6, 4, 2, 8]],        // 7  N   left side down + diagonal up-right + right side down
-  [[0, 6, 1, 8, 2]],       // 8  W   shape TL→BL→TC→BR→TR
-  [[6, 4, 2]],             // 9  /   slash
-  [[0, 2], [1, 7]],        // 10 T   top bar + center drop
-  [[3, 5], [1, 7]],        // 11 +   plus (two strokes)
-  [[0, 2, 6]],             // 12 7   top bar + diagonal to BL
-  [[3, 1, 5]],             // 13 Λ   up caret
-  [[3, 7, 5]],             // 14 V   down caret
-  [[6, 0, 2, 8]],          // 15 Π   pi/arch (BL→TL→TR→BR)
-  [[6, 0, 2]],             // 16 Γ   reverse-L (BL→TL→TR)
-  [[2, 0, 6, 8]],          // 17 ⊓   cap (TR→TL→BL→BR)
-  [[2, 3, 8]],             // 18 <   left chevron
-  [[0, 2], [6, 8]],        // 19 =   top + bottom bars
+  [[0, 4, 8], [2, 4, 6]],  // 1  ✕   X (two strokes)
+  [[0, 2, 6, 8]],          // 2  Z   shape
+  [[0, 6, 8]],             // 3  L   shape
+  [[0, 6, 8, 2]],          // 4  U   shape
+  [[1, 5, 7, 3], [1, 3]],  // 5  ◇   diamond
+  [[0, 6, 4, 2, 8]],       // 6  N   left side down + diagonal up-right + right side down
+  [[0, 6, 1, 8, 2]],       // 7  W   shape TL→BL→TC→BR→TR
+  [[6, 4, 2]],             // 8  /   slash
+  [[0, 2], [1, 7]],        // 9  T   top bar + center drop
+  [[3, 5], [1, 7]],        // 10 +   plus (two strokes)
+  [[0, 2, 6]],             // 11 7   top bar + diagonal to BL
+  [[3, 1, 5]],             // 12 Λ   up caret
+  [[3, 7, 5]],             // 13 V   down caret
+  [[6, 0, 2, 8]],          // 14 Π   pi/arch (BL→TL→TR→BR)
+  [[6, 0, 2]],             // 15 Γ   reverse-L (BL→TL→TR)
+  [[2, 0, 6, 8]],          // 16 ⊓   cap (TR→TL→BL→BR)
+  [[2, 3, 8]],             // 17 <   left chevron
+  [[0, 2], [6, 8]],        // 18 =   top + bottom bars
 ];
 
 // Match user's drawn strokes against all symbols.
@@ -288,7 +287,7 @@ export default function DSST() {
 
   const startGame = useCallback(() => {
     stopTimer();
-    const map = shuffle(Array.from({ length: 20 }, (_, i) => i)).slice(0, 10);
+    const map = shuffle(Array.from({ length: 19 }, (_, i) => i)).slice(0, 10);
     setSessionMap(map);
     setScore(0); scoreRef.current = 0;
     setTotalAttempts(0); attemptsRef.current = 0;

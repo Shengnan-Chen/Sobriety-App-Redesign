@@ -1,6 +1,6 @@
 export const StroopGameGen = () =>{
 
-    const colors = ["Red", "Blue", "Green", "Black","Pink", "Purple", "Orange", "Lime", "Magenta", "Teal"];
+    const colors = ["Red", "Orange", "Yellow", "Green", "Blue", "Purple", "Black", "Brown"];
 
 
     // choose 3 colors

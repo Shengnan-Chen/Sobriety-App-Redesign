@@ -1,6 +1,7 @@
 import { addDoc, collection, doc, serverTimestamp, updateDoc } from 'firebase/firestore';
 import { db, auth } from './firebase';
 import { EMPATICA_PARTICIPANT } from './empaticaConfig';
+import { retryAsync } from './retry';
 
 const EMPATICA_GAMES = new Set(['walk_and_turn', 'single_leg_stand']);
 
@@ -13,7 +14,6 @@ export async function saveSession(
   status: 'complete' | 'partial' = 'complete',
   gameQueue: string[] = [],
   existingDocId?: string,   // If set, updates the existing doc instead of creating a new one
-  surveyData?: { drinkCount: number; breathalyzerScore: string | null } | null,
 ): Promise<string | null> {
   try {
     const gamesOut: Record<string, any> = {};
@@ -52,18 +52,25 @@ export async function saveSession(
       empaticaParticipantId: EMPATICA_PARTICIPANT.participantId,
       empaticaDeviceId:      EMPATICA_PARTICIPANT.deviceId,
       empaticaSubjectId:     EMPATICA_PARTICIPANT.subjectId,
-      ...(surveyData != null ? { survey: surveyData } : {}),
     };
 
     if (existingDocId) {
-      await updateDoc(doc(db, 'sessions', existingDocId), data);
+      // Use dot-notation for every game field so a later savePartialSession never
+      // clobbers a background-job patch (e.g. VP video results) that already landed.
+      const { games, ...rest } = data;
+      const dotGames: Record<string, any> = {};
+      for (const [k, v] of Object.entries(games as Record<string, any>)) {
+        dotGames[`games.${k}`] = v;
+      }
+      // Retry on transient failures so a dropped connection doesn't lose this session save.
+      await retryAsync(() => updateDoc(doc(db, 'sessions', existingDocId), { ...rest, ...dotGames }), 3, 2000);
       console.log('[Session] Updated session:', existingDocId);
       return existingDocId;
     } else {
-      const docRef = await addDoc(collection(db, 'sessions'), {
+      const docRef = await retryAsync(() => addDoc(collection(db, 'sessions'), {
         ...data,
         createdAt: serverTimestamp(),
-      });
+      }), 3, 2000);
       console.log('[Session] Saved session:', docRef.id);
       return docRef.id;
     }

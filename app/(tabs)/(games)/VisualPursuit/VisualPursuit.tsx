@@ -20,6 +20,7 @@ import {
 } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { Image } from "react-native";
+import Svg, { Line } from "react-native-svg";
 
 const INST1 = require('@/assets/inst_images/vp_inst1.jpg');  // portrait steps (1 & 2)
 const INST2 = require('@/assets/inst_images/vp_inst2.jpg');  // landscape steps (3 & 4)
@@ -35,9 +36,13 @@ const PIP_W = 88;
 const PIP_H = 112;
 const HEADER_H = 56; // paddingVertical:16×2 + icon height:24
 
-// Oval dimensions — slightly bigger than before to encourage closer eye placement
-const EYE_OVAL_W = 170;   // horizontal axis (wider)
-const EYE_OVAL_H = 108;   // vertical axis (taller)
+// Calibration oval dimensions — shrunk so two ovals fit side-by-side on the alignment screen
+const CALIB_OVAL_W = 122;   // wide axis
+const CALIB_OVAL_H = 80;    // narrow axis
+
+// Fixed square footprint for the rotated info panel on horizontal-round calibration —
+// a square's bounding box is unchanged by a 90° rotation, so it can't overflow its slot.
+const ALIGN_PANEL_SIZE = Math.min(SCREEN_W - 64, 280);
 
 type RoundKey = "vertical_left" | "vertical_right" | "horizontal_left" | "horizontal_right";
 type BallStage = "to-end" | "to-start";
@@ -727,7 +732,10 @@ export default function VisualPursuit() {
     };
 
     if (sessionMode === "full_session") {
-      completeGame("visual_pursuit", { apiSuccess: null }, capturedGameStart);
+      // Await so the partial-session doc is guaranteed to exist (and its ID set)
+      // before we read it below — otherwise, when VP is the first game to complete,
+      // getPartialSessionId() can still return null because the save hasn't resolved.
+      await completeGame("visual_pursuit", { apiSuccess: null }, capturedGameStart);
       // Capture the partial session doc ID NOW — before the user navigates away and
       // potentially resets the session context. Video uploads take 30-60 s and the
       // context may be cleared long before they finish.
@@ -816,6 +824,20 @@ export default function VisualPursuit() {
   const currentRound = getRoundFromPhase(phase);
   const isHorizontalAlign =
     phase === "align-horizontal-left" || phase === "align-horizontal-right";
+
+  // Which eye's oval is the one being tested this round (gets the solid outline).
+  const testedSide: "left" | "right" | null = currentRound
+    ? (currentRound.endsWith("_left") ? "left" : "right")
+    : null;
+
+  // Horizontal rounds are calibrated with the phone rotated 90° — the divider/ovals
+  // are drawn top/bottom on-screen so they read as left/right once the phone is rotated.
+  // The front camera sits at render-top, which (after the user's physical rotation)
+  // ends up on the same side as the tested eye's oval — so that eye is the one
+  // actually in front of the camera lens.
+  const calibFirstSide: "left" | "right" =
+    isHorizontalAlign ? (currentRound === "horizontal_left" ? "left" : "right") : "left";
+  const calibSecondSide: "left" | "right" = calibFirstSide === "left" ? "right" : "left";
 
   // During test phases, the camera (absoluteFill) needs to show through — make container transparent
   const isTestPhase = TEST_PHASES.has(phase);
@@ -987,39 +1009,57 @@ export default function VisualPursuit() {
                 <View style={styles.placeholder} />
               </View>
 
-              {isHorizontalAlign ? (
-                // Oval only — no text overlapping it
-                <View style={styles.horizontalOvalSection}>
-                  <View style={styles.eyeOvalHorizontal} />
+              {/* Dotted center divider with one eye placeholder on each side. The eye being
+                  tested this round gets a solid outline; the other stays dotted. For vertical
+                  rounds the divider/ovals run left-right; for horizontal rounds they run
+                  top-bottom on-screen so they read as left-right once the phone is rotated. */}
+              <View style={styles.calibSection}>
+                <Svg style={StyleSheet.absoluteFill} pointerEvents="none">
+                  {isHorizontalAlign ? (
+                    <Line
+                      x1="0%" y1="50%" x2="100%" y2="50%"
+                      stroke="#FFFFFF"
+                      strokeWidth={2}
+                      strokeDasharray="6,8"
+                      strokeOpacity={0.5}
+                    />
+                  ) : (
+                    <Line
+                      x1="50%" y1="0%" x2="50%" y2="100%"
+                      stroke="#FFFFFF"
+                      strokeWidth={2}
+                      strokeDasharray="6,8"
+                      strokeOpacity={0.5}
+                    />
+                  )}
+                </Svg>
+                <View style={[styles.calibRow, isHorizontalAlign ? styles.calibRowVertical : styles.calibRowHorizontal]}>
+                  {[calibFirstSide, calibSecondSide].map(side => (
+                    <View key={side} style={styles.calibSide}>
+                      <View
+                        style={[
+                          isVerticalRound(currentRound) ? styles.calibOvalVertical : styles.calibOvalHorizontal,
+                          side === testedSide ? styles.calibOvalSolid : styles.calibOvalDotted,
+                        ]}
+                      />
+                    </View>
+                  ))}
                 </View>
-              ) : (
-                <View style={styles.verticalOvalSection}>
-                  <View style={styles.eyeOval} />
-                  <Text style={styles.alignInstruction}>{ROUND_INSTRUCTION[currentRound]}</Text>
-                </View>
-              )}
+              </View>
 
-              {/* Horizontal: rotate the whole bottom panel so it reads correctly in landscape.
-                  Left eye: -90° (phone rotated CW). Right eye: +90° (phone flipped 180°). */}
+              {/* Round info + instruction + OK button. Horizontal rounds: rendered as a
+                  fixed square and rotated so it reads correctly once the phone is
+                  physically rotated 90°. Left eye: -90° (phone rotated CW).
+                  Right eye: +90° (phone flipped 180°). */}
               <View style={[
                 styles.alignBottom,
+                isHorizontalAlign && styles.alignBottomSquare,
                 currentRound === 'horizontal_left'  && styles.alignBottomLandscape,
                 currentRound === 'horizontal_right' && styles.alignBottomLandscapeRight,
               ]}>
-                {isHorizontalAlign ? (
-                  <>
-                    <Text style={styles.alignInstruction}>{ROUND_INSTRUCTION[currentRound]}</Text>
-                    <Text style={styles.alignSubtext}>Align near the front camera</Text>
-                    <Text style={styles.alignSubtext}>The phone needs to be positioned so the eye fills the whole oval.</Text>
-                    <Text style={styles.roundLabel}>{ROUND_LABELS[currentRound]}</Text>
-                  </>
-                ) : (
-                  <>
-                    <Text style={styles.roundLabel}>{ROUND_LABELS[currentRound]}</Text>
-                    <Text style={styles.ballDirectionText}>{ROUND_DIRECTION[currentRound]}</Text>
-                    <Text style={styles.alignSubtext}>The phone needs to be positioned so the eye fills the whole oval.</Text>
-                  </>
-                )}
+                <Text style={styles.roundLabel}>{ROUND_LABELS[currentRound]}</Text>
+                <Text style={styles.alignInstruction}>{ROUND_INSTRUCTION[currentRound]}</Text>
+                <Text style={styles.alignSubtext}>{ROUND_DIRECTION[currentRound]}</Text>
                 <TouchableOpacity style={styles.okButton} onPress={onOKPressed}>
                   <Text style={styles.okButtonText}>OK — Start Round</Text>
                   <Ionicons name="arrow-forward" size={18} color="#FFFFFF" />
@@ -1342,51 +1382,70 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(0,0,0,0.25)",
   },
 
+  // Calibration section: dotted center divider + two side-by-side eye placeholders.
+  // Used for both vertical and horizontal alignment phases.
+  calibSection: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    gap: 18,
+  },
+  calibRow: {
+    alignItems: "center",
+  },
+  // Vertical rounds: divider/ovals run left-right
+  calibRowHorizontal: {
+    flexDirection: "row",
+    width: "100%",
+  },
+  // Horizontal rounds: divider/ovals run top-bottom on-screen
+  calibRowVertical: {
+    flexDirection: "column",
+    height: "100%",
+  },
+  calibSide: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
   // Vertical rounds — landscape oval (wider than tall, matches eye shape)
-  eyeOval: {
-    width: EYE_OVAL_W,
-    height: EYE_OVAL_H,
+  calibOvalVertical: {
+    width: CALIB_OVAL_W,
+    height: CALIB_OVAL_H,
     borderRadius: 9999,
     borderWidth: 2.5,
-    borderColor: "#6366F1",
-    borderStyle: "dashed",
     backgroundColor: "transparent",
   },
 
   // Horizontal rounds — portrait oval (taller than wide, dimensions swapped vs vertical)
-  eyeOvalHorizontal: {
-    width: EYE_OVAL_H,
-    height: EYE_OVAL_W,
+  calibOvalHorizontal: {
+    width: CALIB_OVAL_H,
+    height: CALIB_OVAL_W,
     borderRadius: 9999,
     borderWidth: 2.5,
-    borderColor: "#6366F1",
-    borderStyle: "dashed",
     backgroundColor: "transparent",
   },
 
-  // Vertical rounds: oval in lower portion of screen
-  verticalOvalSection: {
-    flex: 1,
-    justifyContent: "flex-end",
-    alignItems: "center",
-    paddingBottom: 60,
-    gap: 18,
+  // The eye being tested this round — solid outline
+  calibOvalSolid: {
+    borderColor: "#6366F1",
+    borderStyle: "solid",
   },
 
-  // Horizontal rounds: oval near top (near front camera), small gap before text panel
-  horizontalOvalSection: {
-    paddingTop: 28,
-    paddingBottom: 20,
-    alignItems: "center",
+  // The other eye — dotted outline
+  calibOvalDotted: {
+    borderColor: "rgba(255,255,255,0.45)",
+    borderStyle: "dotted",
   },
 
-  // Left eye: phone rotated CW → text rotated -90° to read correctly
+  // Left eye: text rotated +90° to read correctly (was upside down at -90°)
   alignBottomLandscape: {
-    transform: [{ rotate: '-90deg' }],
-  },
-  // Right eye: phone flipped 180° from left → text rotated +90° to read correctly
-  alignBottomLandscapeRight: {
     transform: [{ rotate: '90deg' }],
+  },
+  // Right eye: text rotated -90° to read correctly (was upside down at +90°)
+  alignBottomLandscapeRight: {
+    transform: [{ rotate: '-90deg' }],
   },
 
   alignInstruction: {
@@ -1394,7 +1453,7 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     color: "#FFFFFF",
     textAlign: "center",
-    paddingHorizontal: 24,
+    paddingHorizontal: 8,
   },
   alignSubtext: {
     fontSize: 13,
@@ -1406,18 +1465,30 @@ const styles = StyleSheet.create({
     paddingHorizontal: 24,
     paddingBottom: 36,
     alignItems: "center",
+    justifyContent: "center",
     gap: 10,
   },
+  // Horizontal rounds only — a fixed square so a 90° rotation can't change its
+  // footprint or overflow into the oval/divider area above.
+  alignBottomSquare: {
+    width: ALIGN_PANEL_SIZE,
+    height: ALIGN_PANEL_SIZE,
+    alignSelf: "center",
+    paddingHorizontal: 16,
+    paddingBottom: 0,
+  },
   roundLabel: {
-    fontSize: 14,
-    fontWeight: "600",
+    fontSize: 12,
+    fontWeight: "700",
     color: "#E5E7EB",
     textAlign: "center",
-  },
-  ballDirectionText: {
-    fontSize: 13,
-    color: "#D1D5DB",
-    textAlign: "center",
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
+    backgroundColor: "rgba(255,255,255,0.12)",
+    paddingHorizontal: 12,
+    paddingVertical: 4,
+    borderRadius: 20,
+    overflow: "hidden",
   },
   okButton: {
     flexDirection: "row",

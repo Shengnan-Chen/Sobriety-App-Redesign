@@ -20,7 +20,7 @@ export default function SignIn() {
     setError('');
     setLoading(true);
     try {
-      await loginUser(email, password);
+      await loginUser(email);
       router.replace('/(tabs)/dashboard');
     } catch (e: any) {
       setError(e?.message ?? 'Sign in failed. Please try again.');
@@ -65,33 +65,18 @@ export default function SignIn() {
         </View>
 
         {activeTab === 'email' && (
-          <>
-            <View style={styles.inputContainer}>
-              <Ionicons name="mail-outline" size={20} color="#6B7280" style={styles.inputIcon} />
-              <TextInput
-                style={styles.input}
-                placeholder="Email"
-                placeholderTextColor="#9CA3AF"
-                value={email}
-                onChangeText={setEmail}
-                keyboardType="email-address"
-                autoCapitalize="none"
-              />
-            </View>
-
-            <View style={styles.inputContainer}>
-              <Ionicons name="lock-closed-outline" size={20} color="#6B7280" style={styles.inputIcon} />
-              <TextInput
-                style={styles.input}
-                placeholder="Password"
-                placeholderTextColor="#9CA3AF"
-                value={password}
-                onChangeText={setPassword}
-                secureTextEntry
-                autoCapitalize="none"
-              />
-            </View>
-          </>
+          <View style={styles.inputContainer}>
+            <Ionicons name="mail-outline" size={20} color="#6B7280" style={styles.inputIcon} />
+            <TextInput
+              style={styles.input}
+              placeholder="Email"
+              placeholderTextColor="#9CA3AF"
+              value={email}
+              onChangeText={setEmail}
+              keyboardType="email-address"
+              autoCapitalize="none"
+            />
+          </View>
         )}
 
         {activeTab === 'phone' && (

@@ -69,6 +69,8 @@ export default function TrailMaking() {
   const [timeLeft, setTimeLeft] = useState(60);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const currentIndexRef = useRef(0);
+  const segmentTimesRef = useRef<number[]>([]);
+  const lastCircleTimeRef = useRef<number>(0);
 
   // Finger tracking
   const [fingerDown, setFingerDown] = useState(false);
@@ -87,6 +89,14 @@ export default function TrailMaking() {
 
   const handleBackToDashboard = () => {
     if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; }
+
+    // Leaving mid-session — persist whatever's been saved so far and close out
+    // the session so it doesn't linger in a stale, half-finished state.
+    if (sessionMode === 'full_session') {
+      savePartialSession();
+      resetSession();
+    }
+
     setGameStart(false);
     setGameCompleted(false);
     setCircles([]);
@@ -150,6 +160,9 @@ export default function TrailMaking() {
 
     if (circle.sequenceIndex === currentIndex) {
       // ✅ CORRECT — connect line, then advance past any already-yellowed wrong bubbles
+      const now = Date.now();
+      segmentTimesRef.current = [...segmentTimesRef.current, now - lastCircleTimeRef.current];
+      lastCircleTimeRef.current = now;
       if (currentIndex > 0) {
         const previousCircle = circles.find(c => c.sequenceIndex === currentIndex - 1);
         if (previousCircle) {
@@ -190,6 +203,7 @@ export default function TrailMaking() {
       circlesCompleted: progressIndex,
       totalCircles,
       errorCount: errorCountRef.current,
+      segmentTimes: segmentTimesRef.current,
     };
     if (sessionMode === 'full_session') {
       completeGame('trail_task', metricsPayload, new Date(startTime));
@@ -217,7 +231,10 @@ export default function TrailMaking() {
     setCircles(newCircles);
     setConnectedLines([]);
     setCurrentIndex(0);
-    setStartTime(Date.now());
+    const now = Date.now();
+    setStartTime(now);
+    lastCircleTimeRef.current = now;
+    segmentTimesRef.current = [];
     setGameStart(true);
     setGameCompleted(false);
     setIsFailed(false);

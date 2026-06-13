@@ -93,7 +93,7 @@ function formatMetricKey(key: string): string {
 
 export default function SessionResults() {
   const router = useRouter();
-  const { sessionResults, sessionGameTimes, sessionStartTime, gameQueue, resetSession, awaitAllPendingJobs, hasPendingJobs, partialSessionId } = useSession();
+  const { sessionResults, sessionGameTimes, sessionStartTime, gameQueue, resetSession, awaitAllPendingJobs, hasPendingJobs, partialSessionId, getSessionResults } = useSession();
   const [saveState, setSaveState] = useState<'pending' | 'saving' | 'saved' | 'error'>('pending');
 
   // Auto-save as soon as this screen mounts (after any background analysis jobs finish).
@@ -105,7 +105,7 @@ export default function SessionResults() {
         EMPATICA_PARTICIPANT.fullId,
         sessionStartTime ?? new Date(),
         new Date(),
-        sessionResults,
+        getSessionResults(),       // read live results — background jobs may have updated these
         sessionGameTimes,
         'complete',
         gameQueue,

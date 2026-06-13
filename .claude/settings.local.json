@@ -11,7 +11,10 @@
       "Bash(node -e ' *)",
       "Bash(python -c ' *)",
       "Bash(npm run *)",
-      "Bash(python3 -c \"from PIL import Image; img = Image.open\\(r'c:/Users/kriis/OneDrive/Desktop/Sobriety-App-Redesign/assets/inst_images/SN_instr.jpg'\\); print\\(img.size\\)\")"
+      "Bash(python3 -c \"from PIL import Image; img = Image.open\\(r'c:/Users/kriis/OneDrive/Desktop/Sobriety-App-Redesign/assets/inst_images/SN_instr.jpg'\\); print\\(img.size\\)\")",
+      "Bash(git rm *)",
+      "Bash(npx tsc *)",
+      "Bash(node -p \"require\\('./package.json'\\).dependencies['react-native']\")"
     ]
   }
 }

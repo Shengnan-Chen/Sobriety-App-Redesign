@@ -298,6 +298,7 @@ export default function WalkAndTurn() {
             <View style={styles.tipsBox}>
               <Ionicons name="information-circle" size={20} color="#3B82F6" style={{ marginBottom: 8 }} />
               {[
+                "Find a place with a clear path to walk.",
                 "Always begin with your right foot.",
                 "Listen for audio cues for each step.",
                 "Stay on a straight line.",

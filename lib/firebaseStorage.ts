@@ -1,6 +1,7 @@
 import { ref, getDownloadURL } from 'firebase/storage';
 import { auth, storage } from './firebase';
 import * as FileSystem from 'expo-file-system/legacy';
+import { retryAsync } from './retry';
 
 const BUCKET = 'sobreity-test.firebasestorage.app';
 
@@ -41,11 +42,12 @@ export async function uploadVideo(
     const timestamp = Date.now();
     const path = `videos/${participantId}/${gameType}/${label}_${timestamp}.mp4`;
     console.log(`[Storage] Uploading video: ${path}`);
-    const url = await nativeUpload(localUri, path, 'video/mp4');
+    // Retry on transient network failures so a flaky connection doesn't lose the recording.
+    const url = await retryAsync(() => nativeUpload(localUri, path, 'video/mp4'), 3, 2000);
     console.log(`[Storage] Video uploaded: ${url}`);
     return url;
   } catch (e) {
-    console.log('[Storage] Video upload error:', e);
+    console.log('[Storage] Video upload error (all retries failed):', e);
     return null;
   }
 }

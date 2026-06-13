@@ -53,6 +53,7 @@ export default function ChoiceReaction() {
   const pressReactionTimesRef = useRef<number[]>([]);
   const releaseReactionTimesRef = useRef<number[]>([]);
   const errorsRef = useRef(0);
+  const roundTimesRef = useRef<{ press: number; release: number | null }[]>([]);
 
   const router = useRouter();
   const { sessionMode, completeGame, isLastGame, savePartialSession, resetSession } = useSession();
@@ -110,6 +111,7 @@ export default function ChoiceReaction() {
       clearTimeouts();
       const rt = Date.now() - blueStartTime.current;
       setPressReactionTimes(prev => { const n = [...prev, rt]; pressReactionTimesRef.current = n; return n; });
+      roundTimesRef.current = [...roundTimesRef.current, { press: rt, release: null }];
       setIsHolding(true);
       const redDelay = Math.random() * 1000 + 500;
       redDelayTimeoutRef.current = setTimeout(() => {
@@ -129,6 +131,10 @@ export default function ChoiceReaction() {
     if (currentPhase === 'red' && id === activeSquare && isHolding) {
       const rt = Date.now() - redStartTime.current;
       setReleaseReactionTimes(prev => { const n = [...prev, rt]; releaseReactionTimesRef.current = n; return n; });
+      const lastIdx = roundTimesRef.current.length - 1;
+      if (lastIdx >= 0) {
+        roundTimesRef.current = roundTimesRef.current.map((r, i) => i === lastIdx ? { ...r, release: rt } : r);
+      }
       clearTimeouts();
       nextRoundTimeoutRef.current = setTimeout(() => {
         nextRoundTimeoutRef.current = null;
@@ -152,6 +158,7 @@ export default function ChoiceReaction() {
     gameStartTimeRef.current = Date.now();
     pressReactionTimesRef.current = [];
     releaseReactionTimesRef.current = [];
+    roundTimesRef.current = [];
     errorsRef.current = 0;
     setPressReactionTimes([]); setReleaseReactionTimes([]); setErrors(0); setPerceivedDuration(0);
     setPhase('game');
@@ -181,6 +188,7 @@ export default function ChoiceReaction() {
       errors: errorsRef.current,
       perceivedDurationSeconds: elapsedSeconds,
       timeDeltaSeconds: elapsedSeconds - 30,
+      roundTimes: roundTimesRef.current,
     };
     if (sessionMode === 'full_session') {
       completeGame('choice_reaction', metricsPayload, new Date(gameStartTimeRef.current));

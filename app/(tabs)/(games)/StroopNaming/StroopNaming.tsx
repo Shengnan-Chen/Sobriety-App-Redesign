@@ -17,6 +17,13 @@ import { SafeAreaView } from "react-native-safe-area-context";
 const SCREEN_W = Dimensions.get('window').width;
 const SN_INSTR = require('@/assets/inst_images/SN_instr.jpg');
 
+// CSS "brown" (#A52A2A) reads as more purple/maroon to some participants —
+// use a warmer, more recognizably brown shade instead.
+const COLOR_OVERRIDES: Record<string, string> = {
+  brown: '#8B4513',
+};
+const getDisplayColor = (name: string) => COLOR_OVERRIDES[name] ?? name;
+
 export default function StroopNaming() {
   const router = useRouter();
   const { sessionMode, completeGame, isLastGame, savePartialSession, resetSession } = useSession();
@@ -182,7 +189,7 @@ export default function StroopNaming() {
 
             {/* Main Brick */}
             <View style={styles.mainBrickContainer}>
-              <StroopBrick color="#F3F4F6" text={colorWord} textColor={color} />
+              <StroopBrick color="#F3F4F6" text={colorWord} textColor={getDisplayColor(color)} />
             </View>
 
             {/* Options */}

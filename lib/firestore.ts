@@ -1,6 +1,7 @@
 import { addDoc, collection, doc, getDocs, query, serverTimestamp, updateDoc, where } from 'firebase/firestore';
 import { db, auth } from './firebase';
 import { EMPATICA_PARTICIPANT } from './empaticaConfig';
+import { retryAsync } from './retry';
 
 export type GameType =
   | 'visual_pursuit'
@@ -167,7 +168,8 @@ export async function saveGameResult(
 ) {
   const needsEmpatica = EMPATICA_GAME_TYPES.has(gameType);
   try {
-    const docRef = await addDoc(collection(db, 'game_results'), {
+    // Retry on transient failures so a dropped connection doesn't lose this result.
+    const docRef = await retryAsync(() => addDoc(collection(db, 'game_results'), {
       gameType,
       participantId,
       userUid:   auth.currentUser?.uid   ?? null,
@@ -189,11 +191,11 @@ export async function saveGameResult(
         empaticaDeviceId:      EMPATICA_PARTICIPANT.deviceId,
         empaticaSubjectId:     EMPATICA_PARTICIPANT.subjectId,
       } : {}),
-    });
+    }), 3, 2000);
     console.log(`[Firestore] Saved ${gameType} result:`, docRef.id);
     return docRef.id;
   } catch (e) {
-    console.log('[Firestore] Save error:', e);
+    console.log('[Firestore] Save error (all retries failed):', e);
     return null;
   }
 }
@@ -244,12 +246,14 @@ export async function updateSessionGameResult(
   metrics: Record<string, any>,
 ): Promise<void> {
   try {
-    await updateDoc(doc(db, 'sessions', sessionDocId), {
+    // Retry on transient failures — this is the write that lands video URLs in the
+    // session document, so it must not be lost to a single dropped connection.
+    await retryAsync(() => updateDoc(doc(db, 'sessions', sessionDocId), {
       [`games.${gameType}`]: metrics,
-    });
+    }), 3, 2000);
     console.log(`[Firestore] Patched session ${sessionDocId} → games.${gameType}`);
   } catch (e) {
-    console.log('[Firestore] updateSessionGameResult error:', e);
+    console.log('[Firestore] updateSessionGameResult error (all retries failed):', e);
   }
 }
 

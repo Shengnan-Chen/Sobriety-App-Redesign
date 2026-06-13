@@ -248,6 +248,8 @@ export default function DSST() {
   const [totalAttempts, setTotalAttempts] = useState(0);
   const scoreRef = useRef(0);
   const attemptsRef = useRef(0);
+  const itemTimesRef = useRef<number[]>([]);
+  const itemStartTimeRef = useRef<number>(0);
 
   // ── drawing state (dot-connect pattern lock) ──
   // strokes: array of completed strokes (each stroke = array of dot indices)
@@ -265,9 +267,6 @@ export default function DSST() {
   const [timeLeft, setTimeLeft] = useState(60);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const gameStartTimeRef = useRef<Date | null>(null);
-
-  // ── canvas offset (for touch → canvas coord mapping) ──
-  const canvasOffset = useRef({ x: 0, y: 0 });
 
   // ─── game control ───────────────────────────────────────────────────────
   const clearDrawing = useCallback(() => {
@@ -291,11 +290,13 @@ export default function DSST() {
     setSessionMap(map);
     setScore(0); scoreRef.current = 0;
     setTotalAttempts(0); attemptsRef.current = 0;
+    itemTimesRef.current = [];
     setTimeLeft(60);
     clearDrawing();
     setCurrentDigit(Math.floor(Math.random() * 10));
     setPhase('playing');
     gameStartTimeRef.current = new Date();
+    itemStartTimeRef.current = Date.now();
 
     let remaining = 60;
     timerRef.current = setInterval(() => {
@@ -308,6 +309,7 @@ export default function DSST() {
           score: scoreRef.current,
           totalAttempts: attemptsRef.current,
           accuracy: attemptsRef.current > 0 ? Math.round((scoreRef.current / attemptsRef.current) * 100) : 0,
+          itemTimes: itemTimesRef.current,
         };
         if (sessionMode === 'full_session') {
           completeGame('dsst', metricsPayload, gameStartTimeRef.current ?? new Date());
@@ -357,12 +359,12 @@ export default function DSST() {
         // Start new stroke — clear visited set for this stroke
         visitedInCurrentRef.current = new Set();
         currentStrokeRef.current    = [];
-        checkCapture(evt.nativeEvent.pageX, evt.nativeEvent.pageY);
+        checkCapture(evt.nativeEvent.locationX, evt.nativeEvent.locationY);
         forceUpdate(n => n + 1);
       },
 
       onPanResponderMove: (evt) => {
-        checkCapture(evt.nativeEvent.pageX, evt.nativeEvent.pageY);
+        checkCapture(evt.nativeEvent.locationX, evt.nativeEvent.locationY);
         forceUpdate(n => n + 1);
       },
 
@@ -378,10 +380,7 @@ export default function DSST() {
     })
   ).current;
 
-  function checkCapture(pageX: number, pageY: number) {
-    const lx = pageX - canvasOffset.current.x;
-    const ly = pageY - canvasOffset.current.y;
-
+  function checkCapture(lx: number, ly: number) {
     for (let i = 0; i < 9; i++) {
       if (visitedInCurrentRef.current.has(i)) continue;
       const { x, y } = dotXY(i);
@@ -402,6 +401,8 @@ export default function DSST() {
     const expected   = sessionMap[currentDigit];
     const correct    = recognized === expected;
 
+    itemTimesRef.current = [...itemTimesRef.current, Date.now() - itemStartTimeRef.current];
+
     if (correct) { setScore(s => { scoreRef.current = s + 1; return s + 1; }); }
     setTotalAttempts(t => { attemptsRef.current = t + 1; return t + 1; });
     setFeedback(correct ? 'correct' : 'wrong');
@@ -410,6 +411,7 @@ export default function DSST() {
       setFeedback(null);
       clearDrawing();
       setCurrentDigit(Math.floor(Math.random() * 10));
+      itemStartTimeRef.current = Date.now();
     }, 700);
   }, [sessionMap, currentDigit, clearDrawing]);
 
@@ -590,7 +592,7 @@ export default function DSST() {
         <View style={s.ph} />
       </View>
 
-      <View style={s.gameWrap}>
+      <ScrollView style={s.gameWrap} contentContainerStyle={s.gameWrapContent} showsVerticalScrollIndicator={false}>
 
         {/* ── Stats bar ── */}
         <View style={s.statsBar}>
@@ -628,11 +630,6 @@ export default function DSST() {
         <View style={s.mainRow}>
           <View
             style={s.canvas}
-            onLayout={e => {
-              e.target.measure((_x, _y, _w, _h, px, py) => {
-                canvasOffset.current = { x: px, y: py };
-              });
-            }}
             {...panResponder.panHandlers}
           >
             <Svg width={CANVAS_SIZE} height={CANVAS_SIZE}>
@@ -718,7 +715,7 @@ export default function DSST() {
           </TouchableOpacity>
         </View>
 
-      </View>
+      </ScrollView>
     </SafeAreaView>
   );
 }
@@ -773,7 +770,8 @@ const s = StyleSheet.create({
   ghostBtnText: { fontSize: 15, fontWeight: '600', color: '#8B5CF6', textAlign: 'center' },
 
   // game
-  gameWrap:   { flex: 1, padding: 16 },
+  gameWrap:   { flex: 1 },
+  gameWrapContent: { flexGrow: 1, padding: 16 },
   statsBar:   { flexDirection: 'row', justifyContent: 'space-around', marginBottom: 12 },
   statPill:   {
     flexDirection: 'row', alignItems: 'center', gap: 6,

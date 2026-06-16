@@ -1,21 +1,22 @@
 ﻿import { Countdown } from "@/components/Countdown";
-import { ms } from '@/lib/scale';
+import { GameTimer } from "@/components/GameTimer";
 import { ScoreTrendCard } from "@/components/ScoreTrendCard";
-import { saveGameResult } from "@/lib/firestore";
-import { EMPATICA_PARTICIPANT } from "@/lib/empaticaConfig";
-import { useSession } from "@/lib/SessionContext";
 import StroopBrick from "@/components/StroopBricks";
+import { EMPATICA_PARTICIPANT } from "@/lib/empaticaConfig";
+import { saveGameResult } from "@/lib/firestore";
+import { ms } from '@/lib/scale';
+import { useSession } from "@/lib/SessionContext";
 import { StroopGameGen } from "@/logic/StroopGameGen";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { useRef, useState } from "react";
-import { GameTimer } from "@/components/GameTimer";
 import { Dimensions, Image, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 const SCREEN_W = Dimensions.get('window').width;
-const SN_INSTR = require('@/assets/inst_images/SN_instr.jpg');
+// const SN_INSTR = require('@/assets/inst_images/SN_instr.jpg');
+const SN_INSTR = require('@/assets/ins_images/stroop.png');
 
 // CSS "brown" (#A52A2A) reads as more purple/maroon to some participants —
 // use a warmer, more recognizably brown shade instead.
@@ -552,11 +553,14 @@ const styles = StyleSheet.create({
   snStepNumText: { fontSize: 14, fontWeight: '700', color: '#FFFFFF' },
   snStepText:    { flex: 1, fontSize: 14, color: '#374151', lineHeight: 20 },
   snInstImg: {
-    width: SCREEN_W - 115,
+    // width: SCREEN_W - 115,
+    width: '100%',
     alignSelf: 'center',
     height: undefined,
-    aspectRatio: 1.625,
-    borderRadius: 8,
+    // aspectRatio: 1.625,
+    aspectRatio: 360/300,
+    // borderRadius: 8,
+    borderRadius: 0,
     marginBottom: 20,
   },
   snTipBox: {

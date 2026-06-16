@@ -1,9 +1,9 @@
 ﻿import { Countdown } from "@/components/Countdown";
-import { scale, ms, vs } from '@/lib/scale';
 import { ScoreTrendCard } from "@/components/ScoreTrendCard";
+import { EMPATICA_PARTICIPANT } from "@/lib/empaticaConfig";
 import { EmpaticaWalkTurnResult, fetchWalkTurnResults } from "@/lib/empaticaS3";
 import { saveGameResult } from "@/lib/firestore";
-import { EMPATICA_PARTICIPANT } from "@/lib/empaticaConfig";
+import { ms } from '@/lib/scale';
 import { useSession } from "@/lib/SessionContext";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
@@ -13,19 +13,20 @@ import * as Speech from "expo-speech";
 import { StatusBar } from "expo-status-bar";
 import { useEffect, useRef, useState } from "react";
 import {
-    ActivityIndicator,
-    Dimensions,
-    Image,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    View,
+  ActivityIndicator,
+  Dimensions,
+  Image,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 const SCREEN_W = Dimensions.get('window').width;
-const WAT_INST = require('@/assets/inst_images/WAT_inst.jpg');
+// const WAT_INST = require('@/assets/inst_images/WAT_inst.jpg');
+const WAT_INST = require('@/assets/ins_images/walk_and_turn.png');
 
 type TestPhase = "walk-forward" | "turn" | "walk-back" | "finished";
 
@@ -878,11 +879,17 @@ const styles = StyleSheet.create({
   },
 
   watInstImg: {
-    width: SCREEN_W,
-    marginHorizontal: -20,
+    // width: SCREEN_W,
+    // marginHorizontal: -20,
+    // height: undefined,
+    // aspectRatio: 0.75,
+    // borderRadius: 8,
+    // marginBottom: 16,
+    width: SCREEN_W -40,
+    alignSelf: 'center',
     height: undefined,
-    aspectRatio: 0.75,
-    borderRadius: 8,
+    aspectRatio: 360/700,
+    borderRadius: 0,
     marginBottom: 16,
   },
   tipsBox: {

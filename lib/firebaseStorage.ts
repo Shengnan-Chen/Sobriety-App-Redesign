@@ -34,13 +34,19 @@ async function nativeUpload(
 
 export async function uploadVideo(
   localUri: string,
-  participantId: string,
+  subjectId: string,
   gameType: string,
   label: string,
 ): Promise<string | null> {
   try {
     const timestamp = Date.now();
-    const path = `videos/${participantId}/${gameType}/${label}_${timestamp}.mp4`;
+    // label is a round key like "horizontal_left" or "vertical_right" —
+    // split into orientation + side for the filename convention SubjectID_timestamp_side_orientation
+    const parts = label.split('_');
+    const filename = parts.length === 2
+      ? `${subjectId}_${timestamp}_${parts[1]}_${parts[0]}.mp4`
+      : `${subjectId}_${timestamp}_${label}.mp4`;
+    const path = `videos/${subjectId}/${gameType}/${filename}`;
     console.log(`[Storage] Uploading video: ${path}`);
     // Retry on transient network failures so a flaky connection doesn't lose the recording.
     const url = await retryAsync(() => nativeUpload(localUri, path, 'video/mp4'), 3, 2000);

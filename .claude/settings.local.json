@@ -15,7 +15,9 @@
       "Bash(git rm *)",
       "Bash(npx tsc *)",
       "Bash(node -p \"require\\('./package.json'\\).dependencies['react-native']\")",
-      "Bash(npx expo *)"
+      "Bash(npx expo *)",
+      "Bash(git log *)",
+      "Bash(git fetch *)"
     ]
   }
 }

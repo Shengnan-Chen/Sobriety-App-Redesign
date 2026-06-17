@@ -737,8 +737,8 @@ export default function VisualPursuit() {
     // and compute nystagmus — all in sequence so nothing blocks the video save.
     const uploadRound = async (round: RoundKey) => {
       const uri = capturedUris[round];
-      if (!uri) return { round, videoUrl: null, apiResult: null, apiSuccess: false, nystagmus: null };
-      const videoUrl = await uploadVideo(uri, EMPATICA_PARTICIPANT.fullId, "visual_pursuit", round).catch(e => {
+      if (!uri) return { round, localUri: null, videoUrl: null, apiResult: null, apiSuccess: false, nystagmus: null };
+      const videoUrl = await uploadVideo(uri, EMPATICA_PARTICIPANT.subjectId, "visual_pursuit", round).catch(e => {
         console.log(`[VP] Upload failed for ${round}:`, e);
         return null;
       });
@@ -751,7 +751,7 @@ export default function VisualPursuit() {
       const nystagmus = apiResult?.json_url
         ? await computeNystagmus(`${API_BASE}${apiResult.json_url}`)
         : null;
-      return { round, videoUrl, apiResult, apiSuccess: apiResult !== null, nystagmus };
+      return { round, localUri: uri, videoUrl, apiResult, apiSuccess: apiResult !== null, nystagmus };
     };
 
     const uploadAllSequential = async () => {
@@ -772,6 +772,8 @@ export default function VisualPursuit() {
         videoUrls[r.round] = r.videoUrl;
         rounds[r.round] = {
           videoUrl:   r.videoUrl,
+          // Kept as fallback if upload failed — allows manual retry or local review
+          localUri:   r.videoUrl ? null : (r.localUri ?? null),
           apiSuccess: r.apiSuccess,
           ...(r.apiResult ? {
             totalFrames:     r.apiResult.n_total_frames,
@@ -1077,7 +1079,9 @@ export default function VisualPursuit() {
                   tested this round gets a solid outline; the other stays dotted. For vertical
                   rounds the divider/ovals run left-right; for horizontal rounds they run
                   top-bottom on-screen so they read as left-right once the phone is rotated. */}
-              <View style={styles.calibSection}>
+              {/* paddingBottom for horizontal rounds reserves space for the absolutely-
+                  positioned info panel so ovals never overlap with the text/button. */}
+              <View style={[styles.calibSection, isHorizontalAlign && { paddingBottom: ALIGN_PANEL_SIZE + 48 }]}>
                 <Svg style={StyleSheet.absoluteFill} pointerEvents="none">
                   {isHorizontalAlign ? (
                     <Line
@@ -1532,12 +1536,15 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     gap: 10,
   },
-  // Horizontal rounds only — a fixed square so a 90° rotation can't change its
-  // footprint or overflow into the oval/divider area above.
+  // Horizontal rounds only — absolutely positioned so calibSection fills the full
+  // height and the divider line sits exactly at the screen midpoint.
+  // Fixed square so 90° rotation can't overflow its footprint.
   alignBottomSquare: {
+    position: "absolute",
+    bottom: 32,
+    alignSelf: "center",
     width: ALIGN_PANEL_SIZE,
     height: ALIGN_PANEL_SIZE,
-    alignSelf: "center",
     paddingHorizontal: 16,
     paddingBottom: 0,
   },

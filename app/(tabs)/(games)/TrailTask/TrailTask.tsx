@@ -74,9 +74,10 @@ export default function TrailMaking() {
   const segmentTimesRef = useRef<number[]>([]);
   const lastCircleTimeRef = useRef<number>(0);
 
-  // Finger tracking
+  // Finger tracking — completedPaths accumulates all lifted strokes so they persist on screen
   const [fingerDown, setFingerDown] = useState(false);
   const [fingerPath, setFingerPath] = useState<{ x: number; y: number }[]>([]);
+  const [completedPaths, setCompletedPaths] = useState<{ x: number; y: number }[][]>([]);
   const [lastTouchedCircle, setLastTouchedCircle] = useState<number | null>(null);
 
   const router = useRouter();
@@ -107,6 +108,7 @@ export default function TrailMaking() {
     setIsFailed(false);
     setFingerDown(false);
     setFingerPath([]);
+    setCompletedPaths([]);
     setLastTouchedCircle(null);
     setTimeLeft(60);
 
@@ -244,6 +246,7 @@ export default function TrailMaking() {
     setWronglyTouched(new Set()); wronglyTouchedRef.current = new Set();
     setFingerDown(false);
     setFingerPath([]);
+    setCompletedPaths([]);
     setLastTouchedCircle(null);
     setTimeLeft(60);
     currentIndexRef.current = 0;
@@ -397,12 +400,29 @@ export default function TrailMaking() {
               }}
               onTouchEnd={() => {
                 setFingerDown(false);
+                // Persist the finished stroke — move it to completedPaths so it stays visible
+                setCompletedPaths(prev => fingerPath.length > 1 ? [...prev, fingerPath] : prev);
                 setFingerPath([]);
                 setLastTouchedCircle(null);
               }}
             >
               <Svg width={CANVAS_WIDTH} height={CANVAS_HEIGHT} style={styles.svg}>
-                {/* Draw finger trail */}
+                {/* Completed strokes — persist after finger lifts */}
+                {completedPaths.map((path, pi) =>
+                  path.map((point, index) => {
+                    if (index === 0) return null;
+                    const prev = path[index - 1];
+                    return (
+                      <Line
+                        key={`done-${pi}-${index}`}
+                        x1={prev.x} y1={prev.y}
+                        x2={point.x} y2={point.y}
+                        stroke="#FCD34D" strokeWidth={4} opacity={0.6}
+                      />
+                    );
+                  })
+                )}
+                {/* Current in-progress stroke */}
                 {fingerPath.length > 1 && fingerPath.map((point, index) => {
                   if (index === 0) return null;
                   const prevPoint = fingerPath[index - 1];

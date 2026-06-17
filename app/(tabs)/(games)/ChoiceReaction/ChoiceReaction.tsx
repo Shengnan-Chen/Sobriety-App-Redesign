@@ -268,7 +268,6 @@ export default function ChoiceReaction() {
             {/* Step illustration */}
             <Image source={CR_INSTR} style={styles.crInstImg} resizeMode="contain" />
             <ChoiceReactionDemo />
-
             {/* Tips */}
             <View style={styles.tipsBox}>
               <Ionicons name="information-circle" size={20} color="#10B981" style={{ marginBottom: 8 }} />
@@ -282,7 +281,7 @@ export default function ChoiceReaction() {
                 </View>
               ))}
             </View>
-
+            
             <TouchableOpacity style={styles.startButton} onPress={() => setCountdown(true)}>
               <Text style={styles.startButtonText}>Begin Test</Text>
               <Ionicons name="arrow-forward" size={20} color="#FFFFFF" />

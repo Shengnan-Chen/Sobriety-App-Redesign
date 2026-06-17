@@ -1,156 +1,132 @@
 import { Ionicons } from '@expo/vector-icons';
 import LottieView from 'lottie-react-native';
-import React, { useRef, useState } from 'react';
-import {
-  Animated,
-  Dimensions,
-  Modal,
-  PanResponder,
-  Pressable,
-  StyleSheet,
-  TouchableOpacity,
-  View
-} from 'react-native';
+import React, { useEffect, useRef, useState } from 'react';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 
-const SCREEN_W = Dimensions.get('window').width;
-const DEMO_ANIMATION = require('@/assets/animation/choice_reaction_demo.json'); 
+const DEMO_ANIMATION = require('@/assets/animation/choice_reaction_demo.json');
 
 export function ChoiceReactionDemo() {
-  const [isFullVideo, setIsFullVideo] = useState(false);
-  const [isCollapsed, setIsCollapsed] = useState(false);
+  const [hasStarted, setHasStarted] = useState(false);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const lottieRef = useRef<LottieView>(null);
 
-  const panY = useRef(new Animated.Value(0)).current;
-  const collapseAnim = useRef(new Animated.Value(1)).current;
+  // 等待状态切换完成、progress 受控属性变为 undefined 之后，再调用 play()，
+  // 避免和 progress 属性切换之间的时序竞争导致动画消失/卡死。
+  useEffect(() => {
+    if (hasStarted) {
+      lottieRef.current?.play();
+    }
+  }, [hasStarted]);
 
-  const panResponder = useRef(
-    PanResponder.create({
-      onMoveShouldSetPanResponder: (_, gestureState) => Math.abs(gestureState.dy) > 1,
-      onPanResponderGrant: () => {
-        panY.setOffset((panY as any).__getValue());
-        panY.setValue(0);
-      },
-      onPanResponderMove: Animated.event([null, { dy: panY }], { useNativeDriver: false }),
-      onPanResponderRelease: () => {
-        panY.flattenOffset();
-      },
-    })
-  ).current;
+  const handlePress = () => {
+    if (!hasStarted) {
+      setIsPlaying(true);
+      setHasStarted(true);
+      return;
+    }
 
-  const toggleCollapse = (toCollapsed: boolean) => {
-    setIsCollapsed(toCollapsed);
-    Animated.timing(collapseAnim, {
-      toValue: toCollapsed ? 0 : 1,
-      duration: 250,
-      useNativeDriver: false,
-    }).start();
+    if (isPlaying) {
+      lottieRef.current?.pause();
+      setIsPlaying(false);
+    } else {
+      lottieRef.current?.resume();
+      setIsPlaying(true);
+    }
   };
 
-  const handleCloseFullVideo = () => {
-    setIsFullVideo(false);
-    toggleCollapse(true);
-  };
-
-  const boxWidth = collapseAnim.interpolate({
-    inputRange: [0, 1],
-    outputRange: [24, SCREEN_W / 2.8]
-  });
-
-  const contentOpacity = collapseAnim;
-  const stripOpacity = collapseAnim.interpolate({
-    inputRange: [0, 1],
-    outputRange: [1, 0]
-  });
+  const showPlayButton = !isPlaying;
 
   return (
-    <>
-      <Animated.View 
-        style={[
-          styles.floatingBox,
-          {
-            transform: [{ translateY: panY }],
-            width: boxWidth,
-          }
-        ]}
-        {...panResponder.panHandlers}
-      >
-        <Animated.View 
-          style={[StyleSheet.absoluteFill, { opacity: contentOpacity, zIndex: isCollapsed ? -1 : 1 }]}
-          pointerEvents={isCollapsed ? 'none' : 'auto'}
-        >
-          <Pressable style={styles.floatingPressable} onPress={() => setIsFullVideo(true)}>
-            <LottieView source={DEMO_ANIMATION} style={styles.floatingLottie} progress={0.25} />
-            <View style={styles.playButtonOverlay}>
-              <Ionicons name="play-circle" size={40} color="rgba(255,255,255,0.8)" />
-            </View>
-          </Pressable>
-
-          <TouchableOpacity style={styles.closeTinyButton} onPress={() => toggleCollapse(true)}>
-            <Ionicons name="close-circle" size={24} color="#666" />
-          </TouchableOpacity>
-        </Animated.View>
-
-        <Animated.View 
-          style={[styles.collapsedStrip, { opacity: stripOpacity, zIndex: isCollapsed ? 1 : -1 }]}
-          pointerEvents={!isCollapsed ? 'none' : 'auto'}
-        >
-          <TouchableOpacity style={styles.expandArea} onPress={() => toggleCollapse(false)}>
-            <Ionicons name="chevron-back" size={24} color="#999" />
-          </TouchableOpacity>
-        </Animated.View>
-      </Animated.View>
-
-      <Modal visible={isFullVideo} transparent={true} animationType="fade" onRequestClose={handleCloseFullVideo}>
-        <View style={styles.modalOverlay}>
-          <Pressable style={StyleSheet.absoluteFill} onPress={handleCloseFullVideo} />
-          <View style={styles.modalContent}>
-            <TouchableOpacity style={styles.modalCloseButton} onPress={handleCloseFullVideo}>
-              <Ionicons name="close" size={28} color="rgba(0,0,0,0.3)" />
-            </TouchableOpacity>
-            <LottieView source={DEMO_ANIMATION} style={styles.fullLottie} autoPlay loop />
-          </View>
+    <View style={styles.card}>
+      <View style={styles.headerRow}>
+        <View style={styles.badge}>
+          <Ionicons name="sparkles" size={14} color="#FFFFFF" />
         </View>
-      </Modal>
-    </>
+        <View style={styles.headerTextGroup}>
+          <Text style={styles.labelText}>Quick Demo</Text>
+          <Text style={styles.subLabelText}>A quick preview before you start</Text>
+        </View>
+      </View>
+
+      <Pressable style={styles.animationBox} onPress={handlePress}>
+        <LottieView
+          ref={lottieRef}
+          source={DEMO_ANIMATION}
+          style={styles.lottie}
+          progress={hasStarted ? undefined : 0.5}
+          loop
+          autoPlay={false}
+        />
+
+        {showPlayButton && (
+          <View style={styles.playButtonOverlay}>
+            <View style={styles.playButtonGlow} />
+            <Ionicons name="play-circle" size={60} color="rgba(255,255,255,0.95)" />
+          </View>
+        )}
+      </Pressable>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  floatingBox: {
-    position: 'absolute',
-    bottom: 183, 
-    right: 20,
-    height: SCREEN_W / 2.8,
-    backgroundColor: '#FFFFFF',
-    borderRadius: 16,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.2,
-    elevation: 8,
+  card: {
+    width: '100%',
+    borderRadius: 18,
     borderWidth: 1,
     borderColor: '#E5E7EB',
-    zIndex: 1000,
+    padding: 16,
+    marginBottom: 24,
   },
-  floatingPressable: { width: '100%', height: '100%', borderRadius: 16, overflow: 'hidden' },
-  floatingLottie: { width: '100%', height: '100%' },
-  playButtonOverlay: { ...StyleSheet.absoluteFill, justifyContent: 'center', alignItems: 'center' },
-  closeTinyButton: { position: 'absolute', top: -10, right: -10, backgroundColor: '#FFF', borderRadius: 12 },
-  collapsedStrip: {
+  headerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 14,
+    gap: 10,
+  },
+  badge: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: '#10B981',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  headerTextGroup: {
+    flex: 1,
+  },
+  labelText: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#1F2937',
+  },
+  subLabelText: {
+    fontSize: 12,
+    color: '#9CA3AF',
+    marginTop: 1,
+  },
+  animationBox: {
+    width: '100%',
+    aspectRatio: 1,
+    borderRadius: 14,
+    overflow: 'hidden',
+    backgroundColor: '#FFFFFF',
+  },
+  lottie: {
+    width: '100%',
+    height: '100%',
+  },
+  playButtonOverlay: {
     ...StyleSheet.absoluteFillObject,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: '#F3F4F6',
-    borderRadius: 16,
+    backgroundColor: 'rgba(17, 24, 39, 0.25)',
   },
-  expandArea: { width: '100%', height: '100%', justifyContent: 'center', alignItems: 'center' },
-  modalOverlay: { flex: 1, backgroundColor: 'rgba(0, 0, 0, 0.7)', justifyContent: 'center', alignItems: 'center' },
-  modalContent: { 
-    width: SCREEN_W * 0.85, 
-    height: SCREEN_W * 0.85, 
-    backgroundColor: '#FFFFFF',
-    borderRadius: 24,
-    justifyContent: 'center',
-    alignItems: 'center',
+  playButtonGlow: {
+    position: 'absolute',
+    width: 90,
+    height: 90,
+    borderRadius: 45,
+    backgroundColor: 'rgba(255,255,255,0.15)',
   },
-  modalCloseButton: { position: 'absolute', top: 10, right: 10, zIndex: 10 },
-  fullLottie: { width: '100%', height: '100%' },
 });

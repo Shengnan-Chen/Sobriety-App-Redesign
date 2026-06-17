@@ -1,7 +1,8 @@
 ﻿import { Countdown } from '@/components/Countdown';
 import { ScoreTrendCard } from '@/components/ScoreTrendCard';
-import { saveGameResult } from '@/lib/firestore';
 import { EMPATICA_PARTICIPANT } from '@/lib/empaticaConfig';
+import { saveGameResult } from '@/lib/firestore';
+import { ms, scale } from '@/lib/scale';
 import { useSession } from '@/lib/SessionContext';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
@@ -9,10 +10,10 @@ import { StatusBar } from 'expo-status-bar';
 import { useRef, useState } from 'react';
 import { Dimensions, Image, Pressable, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { scale, ms } from '@/lib/scale';
 
 const SCREEN_W = Dimensions.get('window').width;
-const CR_INSTR = require('@/assets/inst_images/CR_instr.jpg');
+// const CR_INSTR = require('@/assets/inst_images/CR_instr.jpg');
+const CR_INSTR = require('@/assets/ins_images/choice_reaction.png');
 
 type Square = { id: number; color: string };
 type Phase = 'intro' | 'game' | 'results';
@@ -485,11 +486,14 @@ const styles = StyleSheet.create({
   stepText:       { flex: 1, fontSize: 14, color: '#374151', lineHeight: 20 },
 
   crInstImg: {
-    width: SCREEN_W,
-    marginHorizontal: -20,
+    // width: SCREEN_W,
+    width: '100%',
+    // marginHorizontal: -20,
     height: undefined,
-    aspectRatio: 1.25,
-    borderRadius: 8,
+    // aspectRatio: 1.25,
+    aspectRatio: 360/380,
+    // borderRadius: 8,
+    borderRadius: 0,
     marginBottom: 16,
   },
   tipsBox: {

@@ -1,7 +1,8 @@
 ﻿import { Countdown } from '@/components/Countdown';
 import { ScoreTrendCard } from '@/components/ScoreTrendCard';
-import { saveGameResult } from '@/lib/firestore';
 import { EMPATICA_PARTICIPANT } from '@/lib/empaticaConfig';
+import { saveGameResult } from '@/lib/firestore';
+import { ms, scale } from '@/lib/scale';
 import { useSession } from '@/lib/SessionContext';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
@@ -9,12 +10,13 @@ import { StatusBar } from 'expo-status-bar';
 import { useEffect, useRef, useState } from 'react';
 import { Dimensions, Image, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { scale, ms, vs } from '@/lib/scale';
 import Svg, { Line, Circle as SvgCircle, Text as SvgText } from 'react-native-svg';
 
 const { width } = Dimensions.get('window');
 const CANVAS_WIDTH = width - 40;
-const TRT_INSTR = require('@/assets/inst_images/TRT_instr.jpg');
+// const TRT_INSTR = require('@/assets/inst_images/TRT_instr.jpg');
+const TRT_INSTR = require('@/assets/ins_images/trail_making.png');
+
 const CANVAS_HEIGHT = 500;
 
 // Build sequence: random start letter (not A), 7-8 letters, no Z wrap.
@@ -905,8 +907,10 @@ const styles = StyleSheet.create({
     width: '100%',
     alignSelf: 'center',
     height: undefined,
-    aspectRatio: 0.45,
-    borderRadius: 8,
+    // aspectRatio: 0.45,
+     aspectRatio: 360/930,
+    // borderRadius: 8,
+    borderRadius: 0,
     marginBottom: 16,
   },
   trtTipBox: {

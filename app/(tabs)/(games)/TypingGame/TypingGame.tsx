@@ -1,9 +1,9 @@
 ﻿import { Countdown } from "@/components/Countdown";
-import { scale, ms, vs } from '@/lib/scale';
 import { GameTimer } from "@/components/GameTimer";
 import { ScoreTrendCard } from "@/components/ScoreTrendCard";
-import { saveGameResult } from "@/lib/firestore";
 import { EMPATICA_PARTICIPANT } from "@/lib/empaticaConfig";
+import { saveGameResult } from "@/lib/firestore";
+import { ms } from '@/lib/scale';
 import { useSession } from "@/lib/SessionContext";
 import { getRandomSentence } from "@/logic/Sentences";
 import { Ionicons } from "@expo/vector-icons";
@@ -15,18 +15,18 @@ import {
   Image,
   Keyboard,
   KeyboardAvoidingView,
-  Platform,
   ScrollView,
   StyleSheet,
   Text,
   TextInput,
   TouchableOpacity,
-  View,
+  View
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 const SCREEN_W = Dimensions.get('window').width;
-const TC_INSTR = require('@/assets/inst_images/TC_instr.jpg');
+// const TC_INSTR = require('@/assets/inst_images/TC_instr.jpg');
+const TC_INSTR = require('@/assets/ins_images/typing_challenge.png');
 
 export default function TypingChallenge() {
   const router = useRouter();
@@ -878,11 +878,14 @@ const styles = StyleSheet.create({
   tcStepNumText: { fontSize: 14, fontWeight: '700', color: '#FFFFFF' },
   tcStepText:    { flex: 1, fontSize: 14, color: '#374151', lineHeight: 20 },
   tcInstImg: {
-    width: SCREEN_W,
-    marginHorizontal: -20,
+    // width: SCREEN_W,
+    width: '100%',
+    // marginHorizontal: -20,
     height: undefined,
-    aspectRatio: 1.25,
-    borderRadius: 8,
+    // aspectRatio: 1.25,
+    aspectRatio: 360/290,
+    // borderRadius: 8,
+    borderRadius: 0,
     marginBottom: 16,
   },
 });

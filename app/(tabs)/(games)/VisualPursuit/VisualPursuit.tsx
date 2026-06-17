@@ -1,10 +1,10 @@
-﻿import { saveGameResult, updateSessionGameResult } from "@/lib/firestore";
-import { EMPATICA_PARTICIPANT } from "@/lib/empaticaConfig";
+﻿import { EMPATICA_PARTICIPANT } from "@/lib/empaticaConfig";
 import { uploadVideo } from "@/lib/firebaseStorage";
-import * as FileSystem from 'expo-file-system/legacy';
+import { saveGameResult, updateSessionGameResult } from "@/lib/firestore";
 import { useSession } from "@/lib/SessionContext";
 import { Ionicons } from "@expo/vector-icons";
 import { CameraView, useCameraPermissions } from "expo-camera";
+import * as FileSystem from 'expo-file-system/legacy';
 import { useRouter } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { useEffect, useRef, useState } from "react";
@@ -12,6 +12,7 @@ import {
   ActivityIndicator,
   Animated,
   Dimensions,
+  Image,
   ScrollView,
   StyleSheet,
   Text,
@@ -19,12 +20,11 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
-import { Image } from "react-native";
 import Svg, { Line } from "react-native-svg";
 
-const INST1 = require('@/assets/inst_images/vp_inst1.jpg');  // portrait steps (1 & 2)
-const INST2 = require('@/assets/inst_images/vp_inst2.jpg');  // landscape steps (3 & 4)
-
+// const INST1 = require('@/assets/inst_images/vp_inst1.jpg');  // portrait steps (1 & 2)
+// const INST2 = require('@/assets/inst_images/vp_inst2.jpg');  // landscape steps (3 & 4)
+const VISUAL_PURSUIT_IMG = require('@/assets/ins_images/visual_pursuit.png');
 const { width: SCREEN_W } = Dimensions.get("window");
 const BALL_SIZE = 36;
 const BALL_SPEED = 5;
@@ -125,7 +125,7 @@ function getRoundFromPhase(p: TestPhase): RoundKey | null {
 // ─── step illustration components ────────────────────────────────────────────
 // inst1.jpg = portrait steps (1 & 2), inst2.jpg = landscape steps (3 & 4)
 
-const introStyles = StyleSheet.create({
+{/*const introStyles = StyleSheet.create({
   stepCard: {
     backgroundColor: '#FFFFFF',
     borderRadius: 16,
@@ -353,6 +353,68 @@ const introStyles = StyleSheet.create({
     fontSize: 10,
     fontWeight: '600',
     color: '#3B82F6',
+  },
+});*/}
+const introStyles = StyleSheet.create({
+  stepCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+  stepHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 12,
+    gap: 10,
+  },
+  stepBadge: {
+    backgroundColor: '#EFF6FF',
+    borderRadius: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+  },
+  stepBadgeText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#3B82F6',
+    letterSpacing: 0.5,
+  },
+  stepTitle: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#1F2937',
+    flex: 1,
+  },
+  cardBody: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
+  },
+  chip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: '#EFF6FF',
+    borderRadius: 6,
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+    alignSelf: 'center',
+  },
+  chipText: {
+    fontSize: 10,
+    fontWeight: '600',
+    color: '#3B82F6',
+  },
+  combinedIllustration: {
+    width: SCREEN_W -40, 
+    alignSelf: 'center',
+    height: undefined,
+    aspectRatio: 360 / 1300,       
+    borderRadius: 0,
+    marginBottom: 16,
   },
 });
 
@@ -898,8 +960,10 @@ export default function VisualPursuit() {
             </View>
 
             {/* Step illustrations — images contain all step info */}
+            {/*
             <Image source={INST1} style={introStyles.fullImgPortrait} resizeMode="contain" />
-            <Image source={INST2} style={introStyles.fullImgLandscape} resizeMode="contain" />
+            <Image source={INST2} style={introStyles.fullImgLandscape} resizeMode="contain" />*/}
+            <Image source={VISUAL_PURSUIT_IMG} style={introStyles.combinedIllustration} resizeMode="contain" />
 
             {/* Warning */}
             <View style={styles.exampleNote}>

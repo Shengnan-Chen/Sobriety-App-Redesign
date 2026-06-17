@@ -1,9 +1,10 @@
 ﻿import { Countdown } from '@/components/Countdown';
 import { GameTimer } from '@/components/GameTimer';
 import { TongueTwisterHistoryChart } from '@/components/TongueTwisterHistoryChart';
-import { saveGameResult } from '@/lib/firestore';
 import { EMPATICA_PARTICIPANT } from '@/lib/empaticaConfig';
 import { uploadAudio } from '@/lib/firebaseStorage';
+import { saveGameResult } from '@/lib/firestore';
+import { ms, scale } from '@/lib/scale';
 import { useSession } from '@/lib/SessionContext';
 import { Ionicons } from '@expo/vector-icons';
 import { RecordingPresets, requestRecordingPermissionsAsync, setAudioModeAsync, useAudioRecorder } from 'expo-audio';
@@ -13,10 +14,10 @@ import { StatusBar } from 'expo-status-bar';
 import { useEffect, useRef, useState } from 'react';
 import { Alert, Dimensions, Image, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { scale, ms, vs } from '@/lib/scale';
 
 const SCREEN_W = Dimensions.get('window').width;
-const TT_INSTR = require('@/assets/inst_images/TT_instr.png');
+// const TT_INSTR = require('@/assets/inst_images/TT_instr.png');
+const TT_INSTR = require('@/assets/ins_images/tongue_twister.png');
 
 const TONGUE_TWISTERS = [
   "She sells seashells by the seashore",
@@ -1130,11 +1131,14 @@ const styles = StyleSheet.create({
   },
 
   ttInstImg: {
-    width: SCREEN_W,
-    marginHorizontal: -20,
+    // width: SCREEN_W,
+    width: '100%',
+    // marginHorizontal: -20,
     height: undefined,
-    aspectRatio: 1.3,
-    borderRadius: 8,
+    // aspectRatio: 1.3,
+    aspectRatio: 360/340,
+    // borderRadius: 8,
+    borderRadius: 0,
     marginBottom: 16,
   },
   ttTipsBox: {

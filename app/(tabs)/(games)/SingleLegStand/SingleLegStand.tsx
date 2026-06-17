@@ -1,9 +1,10 @@
 ﻿import { Countdown } from '@/components/Countdown';
+import { GameTimer } from '@/components/GameTimer';
 import { ScoreTrendCard } from '@/components/ScoreTrendCard';
+import { EMPATICA_PARTICIPANT } from '@/lib/empaticaConfig';
 import { EmpaticaSingleLegResult, fetchSingleLegResults } from '@/lib/empaticaS3';
 import { saveGameResult } from '@/lib/firestore';
-import { EMPATICA_PARTICIPANT } from '@/lib/empaticaConfig';
-import { GameTimer } from '@/components/GameTimer';
+import { ms, scale } from '@/lib/scale';
 import { useSession } from '@/lib/SessionContext';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
@@ -13,10 +14,9 @@ import { StatusBar } from 'expo-status-bar';
 import { useRef, useState } from 'react';
 import { Image, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { scale, ms, vs } from '@/lib/scale';
 
-const SLS_INSTR = require('@/assets/inst_images/SLS_instr.jpg');
-
+// const SLS_INSTR = require('@/assets/inst_images/SLS_instr.jpg');
+const SLS_INSTR = require('@/assets/ins_images/single_leg_stand.png');
 export default function SingleLegStand() {
   const [countdown, setCountdown] = useState(false);
   const [gameStart, setGameStart] = useState(false);
@@ -908,10 +908,13 @@ const styles = StyleSheet.create({
     width: '100%',
     alignSelf: 'center',
     height: undefined,
-    aspectRatio: 0.40,
-    borderRadius: 8,
+    // aspectRatio: 0.40,
+    aspectRatio: 360/1100,
+    // borderRadius: 8,
+    borderRadius: 0,
     marginBottom: 16,
-    marginHorizontal: -10,
+    // marginHorizontal: -10,
+  
   },
   tipsBox: {
     backgroundColor: '#FDF2F8',

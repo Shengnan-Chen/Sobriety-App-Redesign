@@ -8,8 +8,9 @@ import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useRef, useState } from 'react';
-import { Dimensions, Image, Pressable, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Dimensions, Pressable, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { ChoiceReactionDemo } from './ChoiceReactionDemo';
 
 const SCREEN_W = Dimensions.get('window').width;
 // const CR_INSTR = require('@/assets/inst_images/CR_instr.jpg');
@@ -265,7 +266,8 @@ export default function ChoiceReaction() {
             </View>
 
             {/* Step illustration */}
-            <Image source={CR_INSTR} style={styles.crInstImg} resizeMode="contain" />
+            {/* <Image source={CR_INSTR} style={styles.crInstImg} resizeMode="contain" /> */}
+            <ChoiceReactionDemo style={{ marginBottom: 16 }} />
 
             {/* Tips */}
             <View style={styles.tipsBox}>

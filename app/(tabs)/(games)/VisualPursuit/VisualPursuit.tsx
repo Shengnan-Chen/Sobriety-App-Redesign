@@ -21,7 +21,7 @@ import {
 } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import Svg, { Line } from "react-native-svg";
-
+import VisualPursuitDemo from './VisualPursuitDemo';
 // const INST1 = require('@/assets/inst_images/vp_inst1.jpg');  // portrait steps (1 & 2)
 // const INST2 = require('@/assets/inst_images/vp_inst2.jpg');  // landscape steps (3 & 4)
 const VISUAL_PURSUIT_IMG = require('@/assets/ins_images/visual_pursuit.png');
@@ -964,7 +964,7 @@ export default function VisualPursuit() {
             <Image source={INST1} style={introStyles.fullImgPortrait} resizeMode="contain" />
             <Image source={INST2} style={introStyles.fullImgLandscape} resizeMode="contain" />*/}
             <Image source={VISUAL_PURSUIT_IMG} style={introStyles.combinedIllustration} resizeMode="contain" />
-
+            <VisualPursuitDemo />
             {/* Warning */}
             <View style={styles.exampleNote}>
               <Ionicons name="information-circle" size={20} color="#6366F1" />

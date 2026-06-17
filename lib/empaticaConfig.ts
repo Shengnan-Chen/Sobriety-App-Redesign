@@ -1,8 +1,11 @@
-// AWS S3 bucket config — credentials are stored in Firebase Secrets and used
-// only by the Cloud Function. The app itself never calls S3 directly.
+// AWS S3 bucket + credentials config.
+// accessKeyId / secretAccessKey must be set in .env as
+// EXPO_PUBLIC_AWS_ACCESS_KEY_ID and EXPO_PUBLIC_AWS_SECRET_ACCESS_KEY.
 export const EMPATICA_S3 = {
-  bucket: 'empatica-us-east-1-prod-data',
-  region: 'us-east-1',
+  bucket:          'empatica-us-east-1-prod-data',
+  region:          'us-east-1',
+  accessKeyId:     process.env.EXPO_PUBLIC_AWS_ACCESS_KEY_ID     ?? '',
+  secretAccessKey: process.env.EXPO_PUBLIC_AWS_SECRET_ACCESS_KEY ?? '',
 };
 
 // Runtime participant config — set once at app startup from AsyncStorage.

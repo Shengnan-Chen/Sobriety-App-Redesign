@@ -1,4 +1,4 @@
-import { EMPATICA_S3 } from './empaticaConfig';
+import { EMPATICA_S3, EMPATICA_PARTICIPANT } from './empaticaConfig';
 
 // ─── Pure-JS HMAC-SHA256 (no native crypto needed) ────────────────────────────
 // Based on the SHA-256 / HMAC-SHA256 spec, runs in Hermes JS engine.
@@ -137,7 +137,8 @@ function parseCSV(text: string) {
 // ─── S3 key builder ───────────────────────────────────────────────────────────
 
 async function findDeviceId(dateStr: string): Promise<string | null> {
-  const { bucket, region, orgId, siteId, participantId } = EMPATICA_S3;
+  const { bucket, region } = EMPATICA_S3;
+  const { orgId, siteId, participantId } = EMPATICA_PARTICIPANT;
   const prefix = `v2/${orgId}/${siteId}/${participantId}/participant_data/${dateStr}/`;
   const url = presignS3Get(`?list-type=2&prefix=${encodeURIComponent(prefix)}&delimiter=%2F`, 60);
   // Use ListObjectsV2 instead — build separate signed list request
@@ -218,7 +219,7 @@ async function fetchMetric(
   startMs: number,
   endMs: number,
 ): Promise<EmpaticaMinuteRow[]> {
-  const { orgId, siteId, participantId, subjectId } = EMPATICA_S3;
+  const { orgId, siteId, participantId, subjectId } = EMPATICA_PARTICIPANT;
   const key = `v2/${orgId}/${siteId}/${participantId}/participant_data/${dateStr}/${deviceId}/digital_biomarkers/aggregated_per_minute/${subjectId}_${dateStr}_${metric}.csv`;
   console.log(`[S3] Fetching metric: ${metric}`);
   console.log(`[S3] Key: ${key}`);
@@ -245,7 +246,7 @@ async function fetchBase(startTime: Date, endTime: Date, metrics: string[]) {
   const dateStr = startTime.toISOString().slice(0, 10);
   const startMs = startTime.getTime();
   const endMs = endTime.getTime();
-  const deviceId = EMPATICA_S3.deviceId;
+  const deviceId = EMPATICA_PARTICIPANT.deviceId;
   console.log(`[S3] Window: ${startTime.toISOString()} → ${endTime.toISOString()}`);
   return Promise.all(metrics.map(m => fetchMetric(dateStr, deviceId, m, startMs, endMs)));
 }

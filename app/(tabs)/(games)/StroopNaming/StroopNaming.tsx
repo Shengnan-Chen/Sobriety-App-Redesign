@@ -360,6 +360,7 @@ const styles = StyleSheet.create({
   startButton: {
     flexDirection: "row",
     alignItems: "center",
+    justifyContent: "center",
     backgroundColor: "#4F46E5",
     paddingVertical: 16,
     paddingHorizontal: 32,

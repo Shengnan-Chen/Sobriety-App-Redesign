@@ -19,8 +19,6 @@ function EyeAnimationBox({ source, mirrored = false, roundNumber, eyeLabel, came
   const [isPlaying, setIsPlaying] = useState(false);
   const lottieRef = useRef<LottieView>(null);
 
-  // 等待状态切换完成、progress 受控属性变为 undefined 之后，再调用 play()，
-  // 避免和 progress 属性切换之间的时序竞争导致动画消失/卡死。
   useEffect(() => {
     if (hasStarted) {
       lottieRef.current?.play();

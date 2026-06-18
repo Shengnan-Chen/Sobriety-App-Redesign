@@ -520,13 +520,16 @@ const styles = StyleSheet.create({
     flexGrow: 1,
     justifyContent: "center",
     alignItems: "center",
-    paddingHorizontal: 40,
-    paddingVertical: 20,
+    // paddingHorizontal: 40,
+    paddingHorizontal: 20,
+    // paddingVertical: 20,
+    paddingBottom: 40
   },
   iconContainer: {
     width: 120,
     height: 120,
     borderRadius: 60,
+    
     backgroundColor: "#EEF2FF",
     alignItems: "center",
     justifyContent: "center",
@@ -580,10 +583,13 @@ const styles = StyleSheet.create({
   startButton: {
     flexDirection: "row",
     alignItems: "center",
+    justifyContent: "center",
     backgroundColor: "#4F46E5",
     paddingVertical: 16,
-    paddingHorizontal: 32,
+    // paddingHorizontal: 32,
+    width: '100%',
     borderRadius: 12,
+    
   },
   startButtonText: {
     fontSize: 16,
@@ -709,7 +715,8 @@ const styles = StyleSheet.create({
     flexGrow: 1,
     justifyContent: "center",
     alignItems: "center",
-    paddingHorizontal: 40,
+    // paddingHorizontal: 40,
+    paddingHorizontal: 20,
     paddingVertical: 20,
   },
   resultTitle: {

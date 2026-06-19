@@ -1,5 +1,5 @@
 import { Stack, useRouter, useSegments } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, BackHandler, View } from 'react-native';
 import * as NavigationBar from 'expo-navigation-bar';
 import NetInfo from '@react-native-community/netinfo';
@@ -16,18 +16,34 @@ function AuthGate({ children }: { children: React.ReactNode }) {
   const segments = useSegments();
   const { config, loading: configLoading } = useParticipant();
   const { savePartialSession, sessionMode } = useSession();
+  // Ref keeps sessionMode current inside async closures / event listeners
+  // without triggering re-renders or stale closure bugs.
+  const sessionModeRef = useRef(sessionMode);
+  useEffect(() => { sessionModeRef.current = sessionMode; }, [sessionMode]);
+
+  // When a full session ends (mode flips back to 'individual'), immediately
+  // process any queued sessions that were skipped during the active session.
+  useEffect(() => {
+    if (sessionMode === 'individual') {
+      setTimeout(async () => {
+        await processSessionQueue();
+        processQueue();
+      }, 1000);
+    }
+  }, [sessionMode]);
 
   useEffect(() => {
     const unsub = onAuthChanged((u) => {
       setUser(u);
-      // Process queues as soon as auth is confirmed — ensures auth.currentUser is
-      // set when saveSession runs, so userUid is correct and Firestore rules pass.
       if (u) {
         setTimeout(async () => {
-          // Sessions first — creates the Firestore docs and links sessionDocIds
-          // into the upload queue so videos/audio can patch the correct doc.
-          await processSessionQueue();
-          processQueue();
+          // Skip session queue if a full session is in progress — running it now
+          // would create a duplicate Firestore doc that conflicts with the ongoing
+          // savePartialSession calls. It will fire when the session ends (above).
+          if (sessionModeRef.current !== 'full_session') {
+            await processSessionQueue();
+          }
+          processQueue(); // uploads can always run regardless of session state
         }, 1000);
       }
     });
@@ -45,7 +61,10 @@ function AuthGate({ children }: { children: React.ReactNode }) {
         // Delay by 3 s so reconnect processing doesn't saturate the JS event loop
         // mid-game (e.g. during VP ball animation or TT recording).
         setTimeout(async () => {
-          await processSessionQueue();
+          // Same guard — don't replay session queue mid-session.
+          if (sessionModeRef.current !== 'full_session') {
+            await processSessionQueue();
+          }
           processQueue();
         }, 3000);
       }

@@ -521,12 +521,22 @@ export default function VisualPursuit() {
   // Uses FileSystem.uploadAsync (native) instead of fetch() for the video payload.
   // React Native's JS-bridge fetch() fails with "Network request failed" on large
   // files (~47 MB horizontal videos); the native uploader handles any file size.
-  const analyzeVideo = async (uri: string): Promise<any> => {
+  // A properly named copy (matching Firebase Storage format) is sent so the API
+  // receives files with a consistent, identifiable filename per round.
+  const analyzeVideo = async (uri: string, round: RoundKey): Promise<any> => {
+    const parts = round.split('_'); // e.g. ['horizontal','left'] or ['vertical','right']
+    const filename = parts.length === 2
+      ? `${EMPATICA_PARTICIPANT.subjectId}_${Date.now()}_${parts[1]}_${parts[0]}.mp4`
+      : `${EMPATICA_PARTICIPANT.subjectId}_${Date.now()}_${round}.mp4`;
+    const namedUri = `${FileSystem.documentDirectory}api_${filename}`;
+
     try {
+      await FileSystem.copyAsync({ from: uri, to: namedUri });
+
       const result = await Promise.race([
         FileSystem.uploadAsync(
           `${API_BASE}/predict/video?sample_rate=4&overlay=0`,
-          uri,
+          namedUri,
           {
             httpMethod: 'POST',
             uploadType: FileSystem.FileSystemUploadType.MULTIPART,
@@ -540,12 +550,15 @@ export default function VisualPursuit() {
         ),
       ]);
 
+      FileSystem.deleteAsync(namedUri, { idempotent: true }).catch(() => {});
+
       if (result.status < 200 || result.status >= 300) {
         console.log('[VP] API error:', result.status, result.body?.slice(0, 200));
         return null;
       }
       return JSON.parse(result.body);
     } catch (e) {
+      FileSystem.deleteAsync(namedUri, { idempotent: true }).catch(() => {});
       console.log('[VP] analyzeVideo error:', e);
       return null;
     }
@@ -789,7 +802,7 @@ export default function VisualPursuit() {
 
       // Run API analysis BEFORE deleting the local file — analyzeVideo reads the
       // same uri, and deleting it first caused "Network request failed" errors.
-      const apiResult = await analyzeVideo(uri).catch(e => {
+      const apiResult = await analyzeVideo(uri, round).catch(e => {
         console.log(`[VP] API failed for ${round}:`, e);
         return null;
       });

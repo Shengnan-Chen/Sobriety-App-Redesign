@@ -410,28 +410,29 @@ export default function TongueTwisters() {
           ? [...responsesBeforeLast, extraResponse]
           : responsesBeforeLast;
 
-        // Upload each phrase recording — delete local file on success, queue on failure
-        const audioUrls: (string | null)[] = await Promise.all(
-          capturedPhraseUris.map(async (uri, i) => {
-            const url = await uploadAudio(uri, EMPATICA_PARTICIPANT.fullId, capturedPhrases[i] ?? `phrase_${i}`, i).catch(() => null);
-            if (url) {
-              FileSystem.deleteAsync(uri, { idempotent: true }).catch(() => {});
-            } else {
-              await enqueueUpload({
-                type: 'audio',
-                localUri: uri,
-                subjectId: EMPATICA_PARTICIPANT.subjectId,
-                participantId: EMPATICA_PARTICIPANT.fullId,
-                gameType: 'tongue_twister',
-                label: capturedPhrases[i] ?? `phrase_${i}`,
-                round: String(i),
-                sessionDocId,
-                recordedAt: new Date().toISOString(),
-              });
-            }
-            return url;
-          })
-        );
+        // Upload phrase recordings sequentially — concurrent enqueueUpload calls
+        // race on AsyncStorage and overwrite each other, losing entries offline.
+        const audioUrls: (string | null)[] = [];
+        for (let i = 0; i < capturedPhraseUris.length; i++) {
+          const uri = capturedPhraseUris[i];
+          const url = await uploadAudio(uri, EMPATICA_PARTICIPANT.fullId, capturedPhrases[i] ?? `phrase_${i}`, i).catch(() => null);
+          if (url) {
+            FileSystem.deleteAsync(uri, { idempotent: true }).catch(() => {});
+          } else {
+            await enqueueUpload({
+              type: 'audio',
+              localUri: uri,
+              subjectId: EMPATICA_PARTICIPANT.subjectId,
+              participantId: EMPATICA_PARTICIPANT.fullId,
+              gameType: 'tongue_twister',
+              label: capturedPhrases[i] ?? `phrase_${i}`,
+              round: String(i),
+              sessionDocId,
+              recordedAt: new Date().toISOString(),
+            });
+          }
+          audioUrls.push(url);
+        }
 
         updateGameResult('tongue_twister', {
           ...buildMetrics(allResponses),
@@ -459,28 +460,28 @@ export default function TongueTwisters() {
     const finalResponses = apiResponsesRef.current;
     console.log('[TT] Game over — responses collected:', finalResponses.length);
 
-    // Upload each phrase recording — delete local file on success, queue on failure
-    const audioUrls: (string | null)[] = await Promise.all(
-      phraseUrisRef.current.map(async (uri, i) => {
-        const url = await uploadAudio(uri, EMPATICA_PARTICIPANT.fullId, shuffledPhrases[i] ?? `phrase_${i}`, i).catch(() => null);
-        if (url) {
-          FileSystem.deleteAsync(uri, { idempotent: true }).catch(() => {});
-        } else {
-          await enqueueUpload({
-            type: 'audio',
-            localUri: uri,
-            subjectId: EMPATICA_PARTICIPANT.subjectId,
-            participantId: EMPATICA_PARTICIPANT.fullId,
-            gameType: 'tongue_twister',
-            label: shuffledPhrases[i] ?? `phrase_${i}`,
-            round: String(i),
-            sessionDocId: null,
-            recordedAt: new Date().toISOString(),
-          });
-        }
-        return url;
-      })
-    );
+    // Sequential — same race condition fix as full_session path above.
+    const audioUrls: (string | null)[] = [];
+    for (let i = 0; i < phraseUrisRef.current.length; i++) {
+      const uri = phraseUrisRef.current[i];
+      const url = await uploadAudio(uri, EMPATICA_PARTICIPANT.fullId, shuffledPhrases[i] ?? `phrase_${i}`, i).catch(() => null);
+      if (url) {
+        FileSystem.deleteAsync(uri, { idempotent: true }).catch(() => {});
+      } else {
+        await enqueueUpload({
+          type: 'audio',
+          localUri: uri,
+          subjectId: EMPATICA_PARTICIPANT.subjectId,
+          participantId: EMPATICA_PARTICIPANT.fullId,
+          gameType: 'tongue_twister',
+          label: shuffledPhrases[i] ?? `phrase_${i}`,
+          round: String(i),
+          sessionDocId: null,
+          recordedAt: new Date().toISOString(),
+        });
+      }
+      audioUrls.push(url);
+    }
 
     saveGameResult(
       'tongue_twister',

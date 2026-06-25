@@ -85,10 +85,10 @@ function jaccardDist(a: Set<string>, b: Set<string>): number {
 //   - canonical dot sequences (primary + variants for tolerance)
 //   - direction sequence derived from those dots
 // ─────────────────────────────────────────────────────────────────────────────
-const SYMBOL_CHARS = [
-  '>', '✕', 'Z', 'L', 'U', '◇', 'N', 'W', '/',
-  'T', '+', '7', 'Λ', 'V', 'Π', 'Γ', '⊏', '<', '=',
-];
+// const SYMBOL_CHARS = [
+//   '>', '✕', 'Z', 'L', 'U', '◇', 'N', 'W', '/',
+//   'T', '+', '7', 'Λ', 'V', 'Π', 'Γ', '⊏', '<', '=','H',
+// ];
 
 
 const CANONICAL_SEQS: number[][][] = [
@@ -111,6 +111,7 @@ const CANONICAL_SEQS: number[][][] = [
   [[2, 0, 6, 8]],          // 16 ⊓   cap (TR→TL→BL→BR)
   [[2, 3, 8]],             // 17 <   left chevron
   [[0, 2], [6, 8]],        // 18 =   top + bottom bars
+  [[0, 3, 6], [2, 5, 8], [3, 5]],   // 19  H   left bar + right bar + middle crossbar
 ];
 
 // Match user's drawn strokes against all symbols.
@@ -177,7 +178,94 @@ function dotXY(dotIdx: number): { x: number; y: number } {
 const MINI = 54;
 const MINI_PAD = 10;
 
-function MiniPreview({ symIdx, size = MINI, showDots = false }: { symIdx: number; size?: number; showDots?: boolean }) {
+const ICON_COLOR = '#8B5CF6';     
+const THIN_ICON_STROKE_WIDTH = 1.5;     
+
+interface SymbolIconThinProps {
+  symIdx: number;
+  size?: number;
+}
+
+function SymbolIconThin({ symIdx, size = 28 }: SymbolIconThinProps) {
+  const pad  = Math.round(size * MINI_PAD / MINI);
+  const step = (size - pad * 2) / 2;
+  const seqs = CANONICAL_SEQS[symIdx];
+
+  const dotPos = (d: number) => ({
+    cx: pad + DOT_COLS[d] * step,
+    cy: pad + DOT_ROWS[d] * step,
+  });
+
+  return (
+    <Svg width={size} height={size}>
+      {seqs.map((seq, si) =>
+        seq.slice(1).map((d, i) => {
+          const a = dotPos(seq[i]);
+          const b = dotPos(d);
+          return (
+            <Line
+              key={`${si}-${i}`}
+              x1={a.cx} y1={a.cy}
+              x2={b.cx} y2={b.cy}
+              stroke={ICON_COLOR}
+              strokeWidth={THIN_ICON_STROKE_WIDTH}
+              strokeLinecap="round"
+            />
+          );
+        })
+      )}
+    </Svg>
+  );
+}
+
+
+interface SymbolIconDottedProps {
+  symIdx: number;
+  size?: number;
+}
+
+function SymbolIconDotted({ symIdx, size = 56 }: SymbolIconDottedProps) {
+  const pad  = Math.round(size * MINI_PAD / MINI);
+  const step = (size - pad * 2) / 2;
+  const seqs = CANONICAL_SEQS[symIdx];
+
+  const dotPos = (d: number) => ({
+    cx: pad + DOT_COLS[d] * step,
+    cy: pad + DOT_ROWS[d] * step,
+  });
+
+  return (
+    <Svg width={size} height={size}>
+      {Array.from({ length: 9 }, (_, i) => {
+        const { cx, cy } = dotPos(i);
+        return <Circle key={i} cx={cx} cy={cy} r={3} fill="#D1D5DB" />;
+      })}
+      {seqs.map((seq, si) =>
+        seq.slice(1).map((d, i) => {
+          const a = dotPos(seq[i]);
+          const b = dotPos(d);
+          return (
+            <Line
+              key={`${si}-${i}`}
+              x1={a.cx} y1={a.cy}
+              x2={b.cx} y2={b.cy}
+              stroke={ICON_COLOR}
+              strokeWidth={2.5}
+              strokeLinecap="round"
+            />
+          );
+        })
+      )}
+      {[...new Set(seqs.flat())].map(d => {
+        const { cx, cy } = dotPos(d);
+        return <Circle key={`a${d}`} cx={cx} cy={cy} r={4} fill={ICON_COLOR} />;
+      })}
+    </Svg>
+  );
+}
+
+
+function MiniPreview({ symIdx, size = MINI, showDots = false, }: { symIdx: number; size?: number; showDots?: boolean }) {
   const pad  = Math.round(size * MINI_PAD / MINI);
   const step = (size - pad * 2) / 2;
   const seqs = CANONICAL_SEQS[symIdx];
@@ -217,6 +305,14 @@ function MiniPreview({ symIdx, size = MINI, showDots = false }: { symIdx: number
   );
 }
 
+function isPassed(totalAttempts: number, score: number): boolean {
+  const incorrect = totalAttempts - score;
+
+  if (totalAttempts < 12) return false;
+  if (totalAttempts <= 15) return incorrect === 0;
+  if (totalAttempts <= 18) return incorrect <= 1;
+  return incorrect <= 2;
+}
 
 function shuffle(arr: number[]): number[] {
   const a = [...arr];
@@ -228,6 +324,14 @@ function shuffle(arr: number[]): number[] {
 }
 
 const DIGITS = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
+
+function getNextDigit(prevDigit: number): number {
+  let next = Math.floor(Math.random() * 10);
+  while (next === prevDigit) {
+    next = Math.floor(Math.random() * 10);
+  }
+  return next;
+}
 
 export default function DSST() {
   const router = useRouter();
@@ -285,14 +389,15 @@ export default function DSST() {
 
   const startGame = useCallback(() => {
     stopTimer();
-    const map = shuffle(Array.from({ length: 19 }, (_, i) => i)).slice(0, 10);
+    const map = shuffle(Array.from({ length: 20 }, (_, i) => i)).slice(0, 10);
     setSessionMap(map);
     setScore(0); scoreRef.current = 0;
     setTotalAttempts(0); attemptsRef.current = 0;
     itemTimesRef.current = [];
     setTimeLeft(60);
     clearDrawing();
-    setCurrentDigit(Math.floor(Math.random() * 10));
+    // setCurrentDigit(Math.floor(Math.random() * 10));
+    setCurrentDigit(getNextDigit(-1));
     setPhase('playing');
     gameStartTimeRef.current = new Date();
     itemStartTimeRef.current = Date.now();
@@ -409,7 +514,8 @@ export default function DSST() {
     setTimeout(() => {
       setFeedback(null);
       clearDrawing();
-      setCurrentDigit(Math.floor(Math.random() * 10));
+      // setCurrentDigit(Math.floor(Math.random() * 10));
+      setCurrentDigit(prev => getNextDigit(prev));
       itemStartTimeRef.current = Date.now();
     }, 700);
   }, [sessionMap, currentDigit, clearDrawing]);
@@ -458,18 +564,19 @@ export default function DSST() {
 
           {/* Symbol reference table */}
           <View style={s.card}>
-            <Text style={s.cardTitle}>All 20 symbols — learn them before playing</Text>
+            <Text style={s.cardTitle}>All {CANONICAL_SEQS.length} symbols— learn them before playing</Text>
             <Text style={s.familiarizeNote}>
               Take a moment to familiarize yourself with the symbols before starting.
             </Text>
-            {CANONICAL_SEQS.map((_, i) => (
-              <View key={i} style={s.symbolRow}>
-                <MiniPreview symIdx={i} size={72} showDots={true} />
-                <View style={s.symbolInfo}>
-                  <Text style={s.symbolChar}>{SYMBOL_CHARS[i]}</Text>
+            <View style={s.symbolGrid}>
+              {CANONICAL_SEQS.map((_, i) => (
+                <View key={i} style={s.symbolGridItem}>
+                  <SymbolIconDotted symIdx={i} size={64} />
+                  {/* <Text style={s.symbolChar}>{SYMBOL_CHARS[i]}</Text> */}
+                  <SymbolIconThin symIdx={i} size={16} />
                 </View>
-              </View>
-            ))}
+              ))}
+            </View>
           </View>
           <DSSTDemo />
           {/* Tips */}
@@ -504,7 +611,8 @@ export default function DSST() {
   // ─────────────────────────────────────────────────────────────────────────
   if (phase === 'results') {
     const acc = totalAttempts > 0 ? Math.round((score / totalAttempts) * 100) : 0;
-    const passed = score >= 20;
+    // const passed = score >= 20;
+    const passed = isPassed(totalAttempts, score);
     return (
       <SafeAreaView style={s.container} edges={['top', 'bottom']}>
         <StatusBar style="dark" />
@@ -750,10 +858,29 @@ const s = StyleSheet.create({
   card:       { backgroundColor: '#F9FAFB', borderRadius: 14, padding: 16, borderWidth: 1, borderColor: '#E5E7EB', marginBottom: 20 },
   cardTitle:  { fontSize: 14, fontWeight: '700', color: '#1F2937', marginBottom: 14 },
 
-  symbolRow:  { flexDirection: 'row', alignItems: 'center', marginBottom: 10, gap: 12 },
-  symbolInfo: { flex: 1 },
-  symbolChar: { fontSize: 22, fontWeight: '700', color: '#4338CA', marginBottom: 2 },
-  symbolDesc: { fontSize: 11, color: '#6B7280', lineHeight: 16 },
+  // symbolRow:  { flexDirection: 'row', alignItems: 'center', marginBottom: 10, gap: 12 },
+  // symbolInfo: { flex: 1 },
+  // symbolChar: { fontSize: 22, fontWeight: '700', color: '#4338CA', marginBottom: 2 },
+  // symbolDesc: { fontSize: 11, color: '#6B7280', lineHeight: 16 },
+  symbolGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+  },
+  symbolGridItem: {
+    width: '44%',
+    flexDirection: 'row',
+    marginHorizontal: 8,
+    alignItems: 'flex-start',
+    gap: 8,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    marginBottom: 12,
+  },
+  // symbolChar: { fontSize: 16, fontWeight: '700', color: '#8B5CF6' },
 
   rulesCard:  { backgroundColor: '#F9FAFB', borderRadius: 14, padding: 16, borderWidth: 1, borderColor: '#E5E7EB', marginBottom: 28 },
   rulesTitle: { fontSize: 14, fontWeight: '700', color: '#1F2937', marginBottom: 12 },

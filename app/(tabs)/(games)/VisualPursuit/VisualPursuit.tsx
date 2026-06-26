@@ -1173,7 +1173,7 @@ export default function VisualPursuit() {
                   Horizontal rounds: all absolute — line at true screen center (y=50%),
                   active oval centred in top half, inactive oval centred in bottom half
                   above the instruction strip. No rotation tricks needed. */}
-              <View style={styles.calibSection}>
+              <View style={[styles.calibSection, !isHorizontalAlign && styles.calibSectionVerticalOvals]}>
                 {isHorizontalAlign ? (
                   <>
                     <Svg style={StyleSheet.absoluteFill} pointerEvents="none">
@@ -1557,6 +1557,11 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
     gap: 18,
+  },
+  // Vertical rounds — eye ovals sit near bottom so upward ball travel uses more screen
+  calibSectionVerticalOvals: {
+    justifyContent: "flex-end",
+    paddingBottom: 20,
   },
   calibRow: {
     alignItems: "center",

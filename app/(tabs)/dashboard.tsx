@@ -3,10 +3,11 @@ import { StatusBar } from 'expo-status-bar';
 import { Ionicons } from '@expo/vector-icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useSession, GAME_ROUTES, GAME_NAMES } from '@/lib/SessionContext';
 import { fetchLatestPartialSession, abandonPartialSession, PartialSessionDoc } from '@/lib/firestore';
 import { useParticipant } from '@/lib/ParticipantContext';
+import { markVerificationShown, wasVerificationShown } from '@/lib/auth';
 import { saveParticipantConfig } from '@/lib/participantConfig';
 import { scale, ms, vs } from '@/lib/scale';
 

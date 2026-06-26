@@ -3,10 +3,11 @@ import { StatusBar } from 'expo-status-bar';
 import { Ionicons } from '@expo/vector-icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useSession, GAME_ROUTES, GAME_NAMES } from '@/lib/SessionContext';
 import { fetchLatestPartialSession, abandonPartialSession, PartialSessionDoc } from '@/lib/firestore';
 import { useParticipant } from '@/lib/ParticipantContext';
+import { markVerificationShown, wasVerificationShown } from '@/lib/auth';
 import { saveParticipantConfig } from '@/lib/participantConfig';
 import { scale, ms, vs } from '@/lib/scale';
 
@@ -28,7 +29,6 @@ export default function Dashboard() {
   const { config, loading } = useParticipant();
   const [partialSession, setPartialSession] = useState<PartialSessionDoc | null>(null);
   const [verifyVisible, setVerifyVisible] = useState(false);
-  const hasShownVerify = useRef(false);
 
   // Re-run whenever the participant config becomes available
   useEffect(() => {
@@ -38,11 +38,12 @@ export default function Dashboard() {
     });
   }, [config?.fullId]);
 
-  // On entering the dashboard after login, always pop the verification dialog
-  // once — so the participant double-checks their ID / watch serial every session.
+  // Show the verification dialog once per login. The flag lives in the auth
+  // module (not a per-mount ref), so returning to the dashboard after a full
+  // session does NOT re-trigger it — only a new login does.
   useEffect(() => {
-    if (loading || hasShownVerify.current) return;
-    hasShownVerify.current = true;
+    if (loading || wasVerificationShown()) return;
+    markVerificationShown();
     setVerifyVisible(true);
   }, [loading]);
 

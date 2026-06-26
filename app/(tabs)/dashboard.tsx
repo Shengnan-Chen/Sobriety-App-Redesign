@@ -3,11 +3,10 @@ import { StatusBar } from 'expo-status-bar';
 import { Ionicons } from '@expo/vector-icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useSession, GAME_ROUTES, GAME_NAMES } from '@/lib/SessionContext';
 import { fetchLatestPartialSession, abandonPartialSession, PartialSessionDoc } from '@/lib/firestore';
 import { useParticipant } from '@/lib/ParticipantContext';
-import { markVerificationShown, wasVerificationShown } from '@/lib/auth';
 import { saveParticipantConfig } from '@/lib/participantConfig';
 import { scale, ms, vs } from '@/lib/scale';
 
@@ -225,7 +224,7 @@ export default function Dashboard() {
             <Text style={styles.verifyTitle}>Verify Participant ID</Text>
             <Text style={styles.verifySubtitle}>
               Please confirm these match your watch before testing. If correct, tap Save. If not,
-              go to Settings to update them.
+              go to Profile to update them.
             </Text>
 
             <View style={styles.verifyValues}>
@@ -248,14 +247,14 @@ export default function Dashboard() {
               <View style={styles.verifyWarn}>
                 <Ionicons name="alert-circle" size={16} color="#B45309" />
                 <Text style={styles.verifyWarnText}>
-                  Invalid Participant ID or Watch Serial Number. Please update this information in Settings.
+                  Invalid Participant ID or Watch Serial Number. Please update this information in Profile.
                 </Text>
               </View>
             )}
 
             <TouchableOpacity style={styles.verifySettingsButton} onPress={handleGoToSettings}>
               <Ionicons name="settings-outline" size={18} color="#6366F1" />
-              <Text style={styles.verifySettingsText}>Go to Settings</Text>
+              <Text style={styles.verifySettingsText}>Go to Profile</Text>
             </TouchableOpacity>
 
             <TouchableOpacity
@@ -264,7 +263,7 @@ export default function Dashboard() {
               disabled={idMissing}
             >
               <Ionicons name="checkmark-circle-outline" size={18} color="#FFFFFF" />
-              <Text style={styles.verifySaveText}>Save</Text>
+              <Text style={styles.verifySaveText}>Confirm</Text>
             </TouchableOpacity>
           </View>
         </View>

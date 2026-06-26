@@ -1,4 +1,4 @@
-﻿import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
+﻿import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Modal } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { Ionicons } from '@expo/vector-icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -7,6 +7,8 @@ import { useEffect, useState } from 'react';
 import { useSession, GAME_ROUTES, GAME_NAMES } from '@/lib/SessionContext';
 import { fetchLatestPartialSession, abandonPartialSession, PartialSessionDoc } from '@/lib/firestore';
 import { useParticipant } from '@/lib/ParticipantContext';
+import { markVerificationShown, wasVerificationShown } from '@/lib/auth';
+import { saveParticipantConfig } from '@/lib/participantConfig';
 import { scale, ms, vs } from '@/lib/scale';
 
 const games = [
@@ -24,8 +26,9 @@ const games = [
 export default function Dashboard() {
   const router = useRouter();
   const { sessionMode, setSessionMode, resumeSession, startSession } = useSession();
-  const { config } = useParticipant();
+  const { config, loading } = useParticipant();
   const [partialSession, setPartialSession] = useState<PartialSessionDoc | null>(null);
+  const [verifyVisible, setVerifyVisible] = useState(false);
 
   // Re-run whenever the participant config becomes available
   useEffect(() => {
@@ -34,6 +37,29 @@ export default function Dashboard() {
       setPartialSession(session);
     });
   }, [config?.fullId]);
+
+  // Show the verification dialog once per login. The flag lives in the auth
+  // module (not a per-mount ref), so returning to the dashboard after a full
+  // session does NOT re-trigger it — only a new login does.
+  useEffect(() => {
+    if (loading || wasVerificationShown()) return;
+    markVerificationShown();
+    setVerifyVisible(true);
+  }, [loading]);
+
+  const handleConfirmId = async () => {
+    // Re-persist the current config as an explicit confirmation (no-op if absent).
+    if (config) await saveParticipantConfig(config);
+    setVerifyVisible(false);
+  };
+
+  const handleGoToSettings = () => {
+    setVerifyVisible(false);
+    // Pass a changing value so Profile re-expands the config section every time.
+    router.push({ pathname: '/(tabs)/profile', params: { expandConfig: String(Date.now()) } } as any);
+  };
+
+  const idMissing = !config?.fullId || !config?.serialNumber;
 
   const handleContinueSession = () => {
     if (!partialSession) return;
@@ -175,6 +201,75 @@ export default function Dashboard() {
           </View>
         )}
       </ScrollView>
+
+      {/* Verification dialog — shown every time the dashboard is entered */}
+      <Modal
+        visible={verifyVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setVerifyVisible(false)}
+      >
+        <View style={styles.verifyBackdrop}>
+          <View style={styles.verifyCard}>
+            <TouchableOpacity
+              style={styles.verifyClose}
+              onPress={() => setVerifyVisible(false)}
+              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+            >
+              <Ionicons name="close" size={22} color="#6B7280" />
+            </TouchableOpacity>
+
+            <View style={styles.verifyIconWrap}>
+              <Ionicons name="watch-outline" size={32} color="#6366F1" />
+            </View>
+            <Text style={styles.verifyTitle}>Confirm Your Assigned Info</Text>
+            <Text style={styles.verifySubtitle}>
+              Please confirm that the Participant ID and Watch Serial Number below match your
+              assigned device.
+            </Text>
+
+            <View style={styles.verifyValues}>
+              <View style={styles.verifyRow}>
+                <Text style={styles.verifyKey}>Participant ID</Text>
+                <Text style={[styles.verifyVal, !config?.fullId && styles.verifyValMissing]}>
+                  {config?.fullId || 'Not set'}
+                </Text>
+              </View>
+              <View style={styles.verifyDivider} />
+              <View style={styles.verifyRow}>
+                <Text style={styles.verifyKey}>Watch Serial Number</Text>
+                <Text style={[styles.verifyVal, !config?.serialNumber && styles.verifyValMissing]}>
+                  {config?.serialNumber || 'Not set'}
+                </Text>
+              </View>
+            </View>
+
+            {idMissing && (
+              <View style={styles.verifyWarn}>
+                <Ionicons name="alert-circle" size={16} color="#B45309" />
+                <Text style={styles.verifyWarnText}>
+                  Invalid Participant ID or Watch Serial Number. Please update this information in Profile.
+                </Text>
+              </View>
+            )}
+
+            <TouchableOpacity style={styles.verifySettingsButton} onPress={handleGoToSettings}>
+              <Ionicons name="settings-outline" size={18} color="#6366F1" />
+              <Text style={styles.verifySettingsText}>Go to Profile</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.verifySaveButton, idMissing && styles.verifySaveDisabled]}
+              onPress={handleConfirmId}
+              disabled={idMissing}
+            >
+              <Ionicons name="checkmark-circle-outline" size={18} color="#FFFFFF" />
+              <Text style={styles.verifySaveText}>Confirm</Text>
+            </TouchableOpacity>
+            
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -184,6 +279,114 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#FAFAFA',
   },
+  // Verification dialog
+  verifyBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.45)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 24,
+  },
+  verifyCard: {
+    width: '100%',
+    maxWidth: 380,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 20,
+    padding: 24,
+    alignItems: 'center',
+  },
+  verifyClose: {
+    position: 'absolute',
+    top: 14,
+    right: 14,
+    width: 32,
+    height: 32,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 16,
+    backgroundColor: '#F3F4F6',
+    zIndex: 1,
+  },
+  verifyIconWrap: {
+    width: scale(64),
+    height: scale(64),
+    borderRadius: 32,
+    backgroundColor: '#EEF2FF',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 14,
+    marginTop: 6,
+  },
+  verifyTitle: {
+    fontSize: ms(20),
+    fontWeight: '700',
+    color: '#1F2937',
+    marginBottom: 8,
+    textAlign: 'center',
+  },
+  verifySubtitle: {
+    fontSize: 13.5,
+    color: '#6B7280',
+    textAlign: 'center',
+    lineHeight: 19,
+    marginBottom: 18,
+  },
+  verifyValues: {
+    width: '100%',
+    backgroundColor: '#F9FAFB',
+    borderRadius: 12,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    marginBottom: 16,
+  },
+  verifyRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  verifyKey: { fontSize: 13, color: '#6B7280', fontWeight: '500' },
+  verifyVal: { fontSize: 14, fontWeight: '700', color: '#1F2937', fontFamily: 'monospace' },
+  verifyValMissing: { color: '#DC2626' },
+  verifyDivider: { height: 1, backgroundColor: '#E5E7EB', marginVertical: 12 },
+  verifyWarn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    width: '100%',
+    backgroundColor: '#FFFBEB',
+    borderColor: '#FCD34D',
+    borderWidth: 1,
+    borderRadius: 10,
+    padding: 12,
+    marginBottom: 16,
+  },
+  verifyWarnText: { flex: 1, fontSize: 12.5, color: '#B45309', lineHeight: 17 },
+  verifySettingsButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    width: '100%',
+    paddingVertical: 13,
+    borderRadius: 12,
+    borderWidth: 1.5,
+    borderColor: '#6366F1',
+    marginBottom: 10,
+  },
+  verifySettingsText: { fontSize: 15, fontWeight: '700', color: '#6366F1' },
+  verifySaveButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    width: '100%',
+    paddingVertical: 14,
+    borderRadius: 12,
+    backgroundColor: '#6366F1',
+  },
+  verifySaveDisabled: { backgroundColor: '#C7D2FE' },
+  verifySaveText: { fontSize: 15, fontWeight: '700', color: '#FFFFFF' },
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',

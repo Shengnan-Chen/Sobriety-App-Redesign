@@ -5,9 +5,19 @@ import { auth, functions } from './firebase';
 // Fixed password used behind the scenes — never shown to users.
 const DEFAULT_PASSWORD = 'sobriety-app-participant';
 
+// Tracks whether the participant-ID verification popup has been shown for the
+// current login. Lives at module scope so it survives the Dashboard screen
+// unmounting/remounting (e.g. during a full session) and only resets on a new
+// login / logout. Reset on app cold start happens naturally (module reloads).
+let verificationShownThisLogin = false;
+export const wasVerificationShown = () => verificationShownThisLogin;
+export const markVerificationShown = () => { verificationShownThisLogin = true; };
+export const resetVerificationShown = () => { verificationShownThisLogin = false; };
+
 // Signs in with the fixed password. If that fails (wrong password or user doesn't
 // exist), calls the Cloud Function to create/fix the account, then retries.
 export async function loginUser(email: string): Promise<void> {
+  resetVerificationShown(); // a fresh login should show the verification popup again
   try {
     await signInWithEmailAndPassword(auth, email, DEFAULT_PASSWORD);
     console.log('[Auth] Sign-in successful for:', email);
@@ -43,7 +53,10 @@ export async function registerUser(email: string): Promise<void> {
   }
 }
 
-export const logoutUser = () => signOut(auth);
+export const logoutUser = () => {
+  resetVerificationShown();
+  return signOut(auth);
+};
 
 export const onAuthChanged = (cb: (user: User | null) => void) =>
   onAuthStateChanged(auth, cb);

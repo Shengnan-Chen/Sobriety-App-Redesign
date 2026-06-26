@@ -1,15 +1,17 @@
 ﻿import { logoutUser, onAuthChanged } from '@/lib/auth';
 import { setActiveParticipant } from '@/lib/empaticaConfig';
-import { useParticipant } from '@/lib/ParticipantContext';
 import { parseParticipantConfig, saveParticipantConfig } from '@/lib/participantConfig';
+import { useParticipant } from '@/lib/ParticipantContext';
+import { scale } from '@/lib/scale';
 import { Ionicons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
-import { scale, ms, vs } from '@/lib/scale';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
+import type { User } from 'firebase/auth';
 import { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  Keyboard,
   KeyboardAvoidingView,
   Platform,
   ScrollView,
@@ -20,10 +22,10 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import type { User } from 'firebase/auth';
 
 export default function Profile() {
   const router = useRouter();
+  const { expandConfig } = useLocalSearchParams<{ expandConfig?: string }>();
   const { config, refresh } = useParticipant();
 
   const [user, setUser] = useState<User | null>(null);
@@ -36,6 +38,11 @@ export default function Profile() {
     const unsub = onAuthChanged(u => setUser(u));
     return unsub;
   }, []);
+
+  // Auto-expand the Empatica Configuration section when arriving via "Go to Settings".
+  useEffect(() => {
+    if (expandConfig) setConfigExpanded(true);
+  }, [expandConfig]);
 
   // Sync fields when config loads/changes
   useEffect(() => {
@@ -54,12 +61,12 @@ export default function Profile() {
       );
       return;
     }
+    Keyboard.dismiss(); // blur inputs so the cursor stops blinking after saving
     setSaving(true);
     await saveParticipantConfig(parsed);
     setActiveParticipant(parsed);
     await refresh();
     setSaving(false);
-    setConfigExpanded(false);
     Alert.alert('Saved', 'Empatica configuration updated.');
   };
 
